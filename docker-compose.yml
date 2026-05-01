@@ -1,0 +1,117 @@
+name: "ats-app-stable"
+services:
+  # ── Database ────────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: ats_postgres
+    restart: unless-stopped
+    networks:
+      - ats_network
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ats_pass
+      POSTGRES_DB: ats_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ats_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "0.5"
+
+  # ── Flask Backend ────────────────────────────────────────────────────────────
+  flask:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ats_flask
+    restart: unless-stopped
+    networks:
+      - ats_network
+    ports:
+      - "5000:5000"
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://postgres:ats_pass@ats_postgres:5432/ats_db
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "1.0"
+
+  # ── Next.js Frontend (dev — hot reload) ────────────────────────────────────
+  nextjs-dev:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: ats_nextjs_dev
+    restart: unless-stopped
+    networks:
+      - ats_network
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./frontend/.env.local
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:5000/api/v1
+      INTERNAL_API_URL: http://ats_flask:5000/api/v1
+    depends_on:
+      - flask
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    profiles:
+      - dev
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "1.0"
+
+  # ── Next.js Frontend (prod simulation) ─────────────────────────────────────
+  nextjs-prod:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:5000/api/v1
+    container_name: ats_nextjs_prod
+    restart: unless-stopped
+    networks:
+      - ats_network
+    ports:
+      - "3001:3000"
+    environment:
+      NODE_ENV: production
+      INTERNAL_API_URL: http://ats_flask:5000/api/v1
+    depends_on:
+      - flask
+    profiles:
+      - prod
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "0.5"
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  ats_network:
+    driver: bridge

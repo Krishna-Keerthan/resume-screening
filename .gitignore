@@ -1,0 +1,242 @@
+# =========================
+
+# 🧠 General
+
+# =========================
+
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.swp
+*.swo
+*.pid
+*.seed
+*.pid.lock
+*.out
+*.err
+
+
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Environment secrets — NEVER commit
+.env
+*.env.local
+
+# Database files
+*.db
+*.sqlite3
+*.sqlite
+
+# Uploads — user files
+uploads/
+
+# ML model cache
+.cache/
+
+# Logs
+*.log
+logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# =========================
+
+# 🔐 Environment Variables
+
+# =========================
+
+.env
+.env.*
+!.env.example
+
+# =========================
+
+# 🐍 Python / Flask Backend
+
+# =========================
+
+# Byte-compiled / optimized / DLL files
+
+**pycache**/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+
+.venv/
+venv/
+env/
+ENV/
+venv.bak/
+venv_old/
+
+# Distribution / packaging
+
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Installer logs
+
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Test / coverage
+
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+pytest_cache/
+nosetests.xml
+coverage.xml
+
+# Flask specific
+
+instance/
+.webassets-cache
+
+# Type checkers
+
+.mypy_cache/
+.pyre/
+.pytype/
+
+# Jupyter
+
+
+# =========================
+
+# ⚡ Node / Next.js Frontend
+
+# =========================
+
+# Node modules
+
+node_modules/
+
+# Next.js build output
+
+.next/
+out/
+.next-cache/
+
+# Production
+
+build/
+
+# Logs
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Package managers
+
+.pnpm-store/
+.yarn/
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# TypeScript
+
+*.tsbuildinfo
+
+# =========================
+
+# 🧪 Testing
+
+# =========================
+
+coverage/
+coverage-final.json
+
+# =========================
+
+# 🧰 IDE / Editor
+
+# =========================
+
+# VS Code
+
+.vscode/
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# JetBrains
+
+.idea/
+*.iml
+
+# =========================
+
+# 🐳 Docker
+
+# =========================
+
+docker-compose.override.yml
+*.env.docker
+
+# =========================
+
+# 📦 Misc
+
+# =========================
+
+*.sqlite3
+*.db
+*.db-journal
+
+# Temporary uploads (Flask)
+
+uploads/
+media/
+static/uploads/
+
+# =========================
+
+# 🚀 Optional (uncomment if needed)
+
+# =========================
+
+migrations/
+
+alembic/versions/

@@ -1,0 +1,1 @@
+"""app/core — cross-cutting infrastructure: logging, exceptions, db, response helpers."""
