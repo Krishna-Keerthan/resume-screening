@@ -13,6 +13,7 @@ from flask.testing import FlaskClient
 
 from app import create_app
 from app.core.database import db as _db
+from config.settings import TestingConfig
 
 
 # ─── Infrastructure ───────────────────────────────────────────────────────────
@@ -20,7 +21,12 @@ from app.core.database import db as _db
 @pytest.fixture(scope="session")
 def app():
     os.environ["APP_ENV"] = "testing"
-    with patch("app.services.service_factory.ServiceFactory.create_all") as mock_factory:
+    # TEST_DATABASE_URL (not DATABASE_URL) so a dev/prod DATABASE_URL in the
+    # environment can never be dropped by the suite. Unset → in-memory SQLite.
+    test_db_url = os.getenv("TEST_DATABASE_URL")
+    db_uri = test_db_url or TestingConfig.SQLALCHEMY_DATABASE_URI
+    with patch("app.services.service_factory.ServiceFactory.create_all") as mock_factory, \
+         patch.object(TestingConfig, "SQLALCHEMY_DATABASE_URI", db_uri):
         mock_svcs = MagicMock()
         mock_svcs.groq.available = False
         mock_svcs.embedding.available = False
