@@ -76,55 +76,55 @@ class TestListCandidates:
 # ── Create ────────────────────────────────────────────────────────────────────
 
 class TestCreateCandidate:
-    def test_returns_201(self, client, db, api_post):
-        r, body = api_post(f"{BASE}/", _payload())
+    def test_returns_201(self, client, db, json_post):
+        r, body = json_post(f"{BASE}/", _payload())
         assert r.status_code == 201
 
-    def test_success_true(self, client, db, api_post):
-        _, body = api_post(f"{BASE}/", _payload())
+    def test_success_true(self, client, db, json_post):
+        _, body = json_post(f"{BASE}/", _payload())
         assert body["success"] is True
 
-    def test_returns_id(self, client, db, api_post):
-        _, body = api_post(f"{BASE}/", _payload())
+    def test_returns_id(self, client, db, json_post):
+        _, body = json_post(f"{BASE}/", _payload())
         assert body["data"]["id"] is not None
 
-    def test_fields_persisted(self, client, db, api_post):
+    def test_fields_persisted(self, client, db, json_post):
         payload = _payload()
-        _, body = api_post(f"{BASE}/", payload)
+        _, body = json_post(f"{BASE}/", payload)
         assert body["data"]["full_name"] == payload["full_name"]
         assert body["data"]["location"] == payload["location"]
 
-    def test_missing_email_400(self, client, db, api_post):
+    def test_missing_email_400(self, client, db, json_post):
         payload = _payload()
         del payload["email"]
-        r, body = api_post(f"{BASE}/", payload)
+        r, body = json_post(f"{BASE}/", payload)
         assert r.status_code == 400
 
-    def test_missing_full_name_400(self, client, db, api_post):
+    def test_missing_full_name_400(self, client, db, json_post):
         payload = _payload()
         del payload["full_name"]
-        r, body = api_post(f"{BASE}/", payload)
+        r, body = json_post(f"{BASE}/", payload)
         assert r.status_code == 400
 
-    def test_invalid_email_returns_400(self, client, db, api_post):
-        r, body = api_post(f"{BASE}/", _payload(email="not-valid"))
+    def test_invalid_email_returns_400(self, client, db, json_post):
+        r, body = json_post(f"{BASE}/", _payload(email="not-valid"))
         assert r.status_code == 400
 
-    def test_duplicate_email_returns_409(self, client, db, api_post, make_candidate):
+    def test_duplicate_email_returns_409(self, client, db, json_post, make_candidate):
         c = make_candidate()
-        r, body = api_post(f"{BASE}/", _payload(email=c.email))
+        r, body = json_post(f"{BASE}/", _payload(email=c.email))
         assert r.status_code == 409
         assert body["error"]["error_code"] == "CANDIDATE_EMAIL_CONFLICT"
 
-    def test_preferred_roles_saved(self, client, db, api_post):
+    def test_preferred_roles_saved(self, client, db, json_post):
         payload = _payload(preferred_roles=["Data Engineer", "ML Ops"])
-        _, body = api_post(f"{BASE}/", payload)
+        _, body = json_post(f"{BASE}/", payload)
         assert "Data Engineer" in body["data"]["preferred_roles"]
 
-    def test_open_to_work_true_by_default(self, client, db, api_post):
+    def test_open_to_work_true_by_default(self, client, db, json_post):
         payload = _payload()
         payload.pop("open_to_work", None)
-        _, body = api_post(f"{BASE}/", payload)
+        _, body = json_post(f"{BASE}/", payload)
         assert body["data"]["open_to_work"] is True
 
 
@@ -160,28 +160,28 @@ class TestGetCandidate:
 # ── Update ────────────────────────────────────────────────────────────────────
 
 class TestUpdateCandidate:
-    def test_returns_200(self, client, db, make_candidate, api_patch):
+    def test_returns_200(self, client, db, make_candidate, json_patch):
         c = make_candidate()
-        r, _ = api_patch(f"{BASE}/{c.id}", {"headline": "Updated headline"})
+        r, _ = json_patch(f"{BASE}/{c.id}", {"headline": "Updated headline"})
         assert r.status_code == 200
 
-    def test_field_updated(self, client, db, make_candidate, api_patch):
+    def test_field_updated(self, client, db, make_candidate, json_patch):
         c = make_candidate()
-        _, body = api_patch(f"{BASE}/{c.id}", {"headline": "New headline text"})
+        _, body = json_patch(f"{BASE}/{c.id}", {"headline": "New headline text"})
         assert body["data"]["headline"] == "New headline text"
 
-    def test_partial_update_keeps_other_fields(self, client, db, make_candidate, api_patch):
+    def test_partial_update_keeps_other_fields(self, client, db, make_candidate, json_patch):
         c = make_candidate(full_name="Stay Same")
-        _, body = api_patch(f"{BASE}/{c.id}", {"headline": "Changed"})
+        _, body = json_patch(f"{BASE}/{c.id}", {"headline": "Changed"})
         assert body["data"]["full_name"] == "Stay Same"
 
-    def test_update_open_to_work(self, client, db, make_candidate, api_patch):
+    def test_update_open_to_work(self, client, db, make_candidate, json_patch):
         c = make_candidate(open_to_work=True)
-        _, body = api_patch(f"{BASE}/{c.id}", {"open_to_work": False})
+        _, body = json_patch(f"{BASE}/{c.id}", {"open_to_work": False})
         assert body["data"]["open_to_work"] is False
 
-    def test_nonexistent_returns_404(self, client, db, api_patch):
-        r, _ = api_patch(f"{BASE}/ghost-id", {"headline": "hi"})
+    def test_nonexistent_returns_404(self, client, db, json_patch):
+        r, _ = json_patch(f"{BASE}/ghost-id", {"headline": "hi"})
         assert r.status_code == 404
 
 

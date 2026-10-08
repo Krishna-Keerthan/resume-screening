@@ -113,6 +113,48 @@ def sample_candidate(db, app):
 
 
 @pytest.fixture()
+def make_candidate(db):
+    """Factory: make_candidate(**overrides) -> a flushed Candidate."""
+    from app.models.candidate import Candidate
+
+    def _make(**overrides):
+        fields = {
+            "full_name": "Test Candidate",
+            "email": f"cand+{uuid.uuid4().hex[:8]}@example.com",
+            "location": "Bangalore, India",
+            "headline": "Python Developer",
+            "open_to_work": True,
+        }
+        fields.update(overrides)
+        c = Candidate(**fields)
+        c.save()
+        return c
+    return _make
+
+
+@pytest.fixture()
+def make_resume(db):
+    """Factory: make_resume(candidate_id=..., **overrides) -> a flushed Resume."""
+    from app.models.resume import Resume
+    from app.models.enums import ParseStatus
+
+    def _make(candidate_id, **overrides):
+        fields = {
+            "candidate_id": candidate_id,
+            "filename": "resume.pdf",
+            "file_path": "/tmp/uploads/resume.pdf",
+            "file_size_kb": 50,
+            "file_type": "pdf",
+            "parse_status": ParseStatus.SUCCESS,
+        }
+        fields.update(overrides)
+        r = Resume(**fields)
+        r.save()
+        return r
+    return _make
+
+
+@pytest.fixture()
 def sample_recruiter(db, app):
     from app.models.recruiter import Recruiter
     with app.app_context():
@@ -184,8 +226,8 @@ def sample_resume(db, app, sample_candidate):
             candidate_id=sample_candidate.id,
             filename="jane_doe_resume.pdf",
             file_path="/tmp/uploads/fake_resume.pdf",
-            file_size_bytes=102400,
-            content_type="application/pdf",
+            file_size_kb=100,
+            file_type="pdf",
             parse_status=ParseStatus.SUCCESS,
             total_experience_years=6.0,
             is_active=True,
