@@ -2,21 +2,6 @@
 app/api/v1/auth.py
 
 Authentication resource — JWT-based login, registration and token lifecycle.
-
-FIXES APPLIED (vs previous version):
-  BUG #1 — db.session.commit() added after every write operation.
-  Previously, repo.save() only called flush() (row in memory, not on disk).
-  Without commit(), Flask-SQLAlchemy rolls back when the request context
-  tears down, so candidate/recruiter/refresh_token rows were never persisted.
-
-  Affected functions:
-    register_candidate()  — was missing commit after repo.save(candidate)
-    register_recruiter()  — was missing commit after repo.save(recruiter)
-    change_password()     — was missing commit after repo.save(user)
-    _store_refresh_token()— was missing commit after rt.save()
-
-  The fix wraps each write block in a try/except that commits on success
-  and rolls back explicitly on failure, so no partial writes survive.
 """
 
 from __future__ import annotations
@@ -135,10 +120,6 @@ def _auth_response(user_dict: dict, role: str, status: int = 200):
     access, new_refresh_token, jti = create_tokens(user_id, role)
 
     _store_refresh_token(jti, new_refresh_token, user_id, role)
-
-    # FIX: commit the refresh_token row that _store_refresh_token just flushed.
-    # For login, the user row already exists in DB, so we only need to commit
-    # the new refresh_token row.
 
     body = {
         "success": True,

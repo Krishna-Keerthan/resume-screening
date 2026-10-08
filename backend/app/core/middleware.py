@@ -3,26 +3,13 @@ app/core/middleware.py
 
 Flask middleware hooks registered in create_app().
 
-FIXES APPLIED:
-  MW-02 — Auto-commit fired on ALL 2xx status codes, including 201 Created
-          responses that might be partially successful. More importantly, the
-          auto-commit after_request hook should NOT commit on 204 No Content
-          responses where there is deliberately nothing to commit (e.g. DELETE).
-          The logic was also subtly wrong: the auto-commit on 2xx means a
-          route that builds a 201 but raises mid-serialisation still commits.
-
-          Improved: restrict auto-commit to 200 and 201 only. 204 (no_content)
-          does not commit — if a DELETE route soft-deletes a record, it will
-          already have been flushed and should be committed by the
-          204-producing route itself, or accept the auto-commit for 200/201.
-          Operators can tune AUTOCOMMIT_STATUS_CODES in config.
-
 Responsibilities:
   1. Request ID — correlation ID on every request.
   2. Request logging — METHOD, path, IP at start.
   3. Response logging — status code + elapsed time.
   4. Auth context — populate g.current_user from Bearer token.
-  5. Auto-commit — commit the session on 200/201 responses.
+  5. Auto-commit — commit the session on 200/201/204 responses, roll back
+     on everything else (see _after_request).
   6. Error rollback — rollback on any non-2xx or unhandled exception.
   7. Response headers — inject X-Request-ID.
 """
@@ -37,9 +24,8 @@ from app.core.logging import set_request_id
 
 logger = logging.getLogger(__name__)
 
-# Status codes that trigger an automatic db.session.commit().
-# 204 is intentionally excluded — no content means no new writes to commit
-# via this hook (the route already flushed its deletes/updates).
+# Status codes whose commit failure turns the response into a 500.
+# 204 also commits, in its own branch of _after_request.
 _AUTOCOMMIT_STATUSES = frozenset({200, 201})
 
 
@@ -96,21 +82,16 @@ def register_middleware(app: Flask) -> None:
     @app.after_request
     def _after_request(response):
         """
-        Runs after every successful request handler.
+        Runs after every request handler that returned a response.
 
-        FIX MW-02: Auto-commit is now restricted to _AUTOCOMMIT_STATUSES
-        (200, 201) rather than all 2xx codes. 204 responses (DELETE/no-content)
-        are excluded because there is no new data to commit via this hook.
-
-        Why commit here?
-          - DRY: a single hook covers all write endpoints automatically.
-          - Atomicity: the entire request's writes commit together or not at all.
-
-        Why only on 200/201?
-          - 4xx must NOT commit — any partial writes should roll back.
-          - 5xx roll back in teardown_appcontext.
-          - 204 (no_content) routes have already flushed their deletes;
-            committing here is safe but unnecessary — included via rollback path.
+        Transaction handling, so routes only need to flush:
+          - 200 / 201: commit. If the commit fails, roll back and turn the
+            response into a 500.
+          - 204: commit. If the commit fails, roll back and log, but the
+            response stays 204.
+          - Any other status (202, other 2xx, 3xx, 4xx, 5xx): roll back.
+        An exception that escapes the handler skips this hook; the teardown
+        hook rolls back instead.
         """
         from app.core.database import db
 
