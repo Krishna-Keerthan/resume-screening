@@ -438,41 +438,26 @@ class AtsScorerService:
         """
         [SC6] Build a ScoringResult from an existing AtsScore ORM record.
         """
-        try:
-            return ScoringResult(
-                resume_id=record.resume_id,
-                job_id=record.job_id,
-                final_score=record.final_score,
-                score_label=record.score_label or "fair",
-                semantic_score=getattr(record, "semantic_score", 0.0),
-                keyword_score=getattr(record, "keyword_score", 0.0),
-                experience_score=getattr(record, "experience_score", 0.0),
-                section_quality_score=getattr(record, "section_quality_score", 0.0),
-                semantic_available=record.semantic_available,
-                matched_skills=getattr(record, "matched_skills_list", []),
-                missing_skills=getattr(record, "missing_skills_list", []),
-                extra_skills=getattr(record, "extra_skills_list", []),
-                improvement_tips=getattr(record, "improvement_tips_list", []),
-                summary_text=getattr(record, "summary_text", ""),
-                hiring_recommendation=getattr(record, "hiring_recommendation", "maybe"),
-                weights_used=getattr(record, "weights_used_dict", self._weights),
-                ats_score_id=record.id,
-                from_cache=from_cache,
-            )
-        except Exception as exc:
-            logger.warning("_result_from_ats_record failed: %s", exc)
-            return ScoringResult(
-                resume_id=getattr(record, "resume_id", ""),
-                job_id=getattr(record, "job_id", ""),
-                final_score=getattr(record, "final_score", 0.0),
-                score_label="fair",
-                semantic_score=0.0,
-                keyword_score=0.0,
-                experience_score=0.0,
-                section_quality_score=0.0,
-                semantic_available=False,
-                from_cache=from_cache,
-            )
+        return ScoringResult(
+            resume_id=record.resume_id,
+            job_id=record.job_id,
+            final_score=record.final_score,
+            score_label=record.score_label or "fair",
+            semantic_score=getattr(record, "semantic_score", 0.0),
+            keyword_score=getattr(record, "keyword_score", 0.0),
+            experience_score=getattr(record, "experience_score", 0.0),
+            section_quality_score=getattr(record, "section_quality_score", 0.0),
+            semantic_available=record.semantic_available,
+            matched_skills=getattr(record, "matched_skills_list", []),
+            missing_skills=getattr(record, "missing_skills_list", []),
+            extra_skills=getattr(record, "extra_skills_list", []),
+            improvement_tips=getattr(record, "improvement_tips_list", []),
+            summary_text=getattr(record, "summary_text", ""),
+            hiring_recommendation=getattr(record, "hiring_recommendation", "maybe"),
+            weights_used=getattr(record, "weights_used_dict", self._weights),
+            ats_score_id=record.id,
+            from_cache=from_cache,
+        )
 
     def _build_ats_record(
         self,

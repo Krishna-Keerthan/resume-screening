@@ -89,3 +89,15 @@ class TestStoredScores:
         result = ats_scorer.score_resume_job(sample_resume, sample_job, use_llm=False)
         assert result.error is not None
         assert "score_to_label" in result.error
+
+    def test_unreadable_cached_record_is_reported(self, ats_scorer, sample_resume, sample_job,
+                                                  monkeypatch):
+        from app.models.ats_score import AtsScore
+        ats_scorer.score_resume_job(sample_resume, sample_job, use_llm=False)
+
+        def corrupt(self):
+            raise ValueError("corrupt weights_used")
+
+        monkeypatch.setattr(AtsScore, "weights_used_dict", property(corrupt))
+        result = ats_scorer.score_resume_job(sample_resume, sample_job, use_llm=False)
+        assert result.error == "corrupt weights_used"
