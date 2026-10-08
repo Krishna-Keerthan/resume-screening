@@ -6,12 +6,6 @@ weighted final score and persists the result.
 
 IMPROVEMENTS OVER ORIGINAL
 ---------------------------
-  [SC1] Parallel scoring: all four component scorers (keyword, semantic,
-        experience, section_quality) now run concurrently using
-        ThreadPoolExecutor. On a server with 4+ CPU cores, total scoring
-        time drops from ~sum of all latencies to ~max of all latencies.
-        Graceful fallback to sequential if threading fails.
-
   [SC2] Semantic weight fallback improved: when semantic is unavailable,
         weight is redistributed proportionally to ALL other components
         (not just keyword), preserving the relative balance between
@@ -41,7 +35,6 @@ IMPROVEMENTS OVER ORIGINAL
 
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -116,8 +109,6 @@ class AtsScorerService:
         threshold_excellent: float = 0.80,
         threshold_good: float = 0.65,
         threshold_fair: float = 0.50,
-        parallel_scoring: bool = True,
-        scoring_timeout_seconds: float = 10.0,
     ):
         self._kw   = keyword_matcher
         self._sem  = semantic_matcher
@@ -129,8 +120,6 @@ class AtsScorerService:
         self._threshold_excellent  = threshold_excellent
         self._threshold_good       = threshold_good
         self._threshold_fair       = threshold_fair
-        self._parallel_scoring     = parallel_scoring    # [SC1]
-        self._scoring_timeout      = scoring_timeout_seconds
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -287,8 +276,7 @@ class AtsScorerService:
         job_exp_years   = job.experience_years
         job_resp        = getattr(job, "responsibilities_list", []) or []
 
-        # [SC1] Run component scorers in parallel
-        kw_score, sem_result, exp_score, sq_score, sq_missing = self._run_components_parallel(
+        kw_score, sem_result, exp_score, sq_score, sq_missing = self._run_components(
             resume_skills=resume_skills,
             resume_text=resume_text,
             resume_exp=resume_exp,
@@ -386,9 +374,9 @@ class AtsScorerService:
             semantic_component_scores=sem_result.component_scores,   # [SC5]
         )
 
-    # ── Parallel component scoring ─────────────────────────────────────────────
+    # ── Component scoring ──────────────────────────────────────────────────────
 
-    def _run_components_parallel(
+    def _run_components(
         self,
         *,
         resume_skills, resume_text, resume_exp, resume_edu,
@@ -396,172 +384,50 @@ class AtsScorerService:
         job_desc, job_exp_years, job_title, job_resp, resume_oov,
     ):
         """
-        [SC1] Run all four component scorers concurrently.
+        Run the four component scorers one after another.
 
-        Falls back to sequential execution if ThreadPoolExecutor fails
-        or if self._parallel_scoring is False.
+        Scorer exceptions propagate, so the caller reports the failure
+        instead of silently scoring that component as 0.0.
         """
-        if not self._parallel_scoring:
-            return self._run_components_sequential(
-                resume_skills=resume_skills, resume_text=resume_text,
-                resume_exp=resume_exp, resume_edu=resume_edu,
-                resume_years=resume_years, summary_text=summary_text,
-                job_skills_req=job_skills_req, job_skills_nth=job_skills_nth,
-                job_desc=job_desc, job_exp_years=job_exp_years,
-                job_title=job_title, job_resp=job_resp,
-            )
-
-        kw_result  = None
-        sem_result = None
-        exp_result = None
-        sq_result  = None
-        sq_missing = []
-
-        try:
-            with ThreadPoolExecutor(max_workers=4) as executor:
-                futures = {
-                    executor.submit(
-                        self._kw.score,
-                        resume_text=resume_text,
-                        resume_skills=resume_skills,
-                        job_description=job_desc,
-                        job_required_skills=job_skills_req,
-                        job_nice_to_have_skills=job_skills_nth,
-                        oov_skills=resume_oov,
-                    ): "kw",
-                    executor.submit(
-                        self._exp.score,
-                        candidate_years=resume_years,
-                        required_years=job_exp_years,
-                        job_title=job_title,
-                        education=resume_edu,
-                        experience=resume_exp,
-                    ): "exp",
-                    executor.submit(
-                        self._sq.score,
-                        skills=resume_skills,
-                        experience=resume_exp,
-                        education=resume_edu,
-                        summary_text=summary_text,
-                        raw_text_length=len(resume_text),
-                    ): "sq",
-                }
-
-                for future in as_completed(futures, timeout=self._scoring_timeout):
-                    name = futures[future]
-                    try:
-                        res = future.result()
-                        if name == "kw":  kw_result = res
-                        elif name == "exp": exp_result = res
-                        elif name == "sq":  sq_result = res
-                    except Exception as exc:
-                        logger.warning("Component scorer '%s' failed: %s", name, exc)
-
-        except (TimeoutError, Exception) as exc:
-            logger.warning("Parallel scoring failed (%s), falling back to sequential", exc)
-            return self._run_components_sequential(
-                resume_skills=resume_skills, resume_text=resume_text,
-                resume_exp=resume_exp, resume_edu=resume_edu,
-                resume_years=resume_years, summary_text=summary_text,
-                job_skills_req=job_skills_req, job_skills_nth=job_skills_nth,
-                job_desc=job_desc, job_exp_years=job_exp_years,
-                job_title=job_title, job_resp=job_resp,
-            )
-        
-        try:
-            sem_result = self._sem.score(
-                resume_skills=resume_skills,
-                resume_summary=summary_text,
-                resume_experience=resume_exp,
-                job_title=job_title,
-                job_description=job_desc,
-                job_required_skills=job_skills_req,
-                job_responsibilities=job_resp,
-            )
-        except Exception as exc:
-            logger.warning("sem scorer failed: %s", exc)
-            from app.services.semantic_matcher import SemanticScoreResult
-            sem_result = SemanticScoreResult(score=0.0, raw_cosine=0.0, available=False)
-
-        # Fill any missing (failed) scorers with safe defaults
-        from app.services.semantic_matcher import SemanticScoreResult
-        if kw_result  is None: kw_result = 0.0
-        if sem_result is None: sem_result = SemanticScoreResult(score=0.0, raw_cosine=0.0, available=False)
-        if exp_result is None: exp_result = 0.0
-        if sq_result  is None: sq_result = 0.0
-
-        # sq_missing (safe to call sequentially — it's fast)
-        try:
-            sq_missing = self._sq.get_missing_sections(
-                skills=resume_skills, experience=resume_exp, education=resume_edu,
-                summary_text=summary_text, raw_text_length=len(resume_text),
-            )
-        except Exception:
-            sq_missing = []
-
-        return kw_result, sem_result, exp_result, sq_result, sq_missing
-
-    def _run_components_sequential(
-        self,
-        *,
-        resume_skills, resume_text, resume_exp, resume_edu,
-        resume_years, summary_text, job_skills_req, job_skills_nth,
-        job_desc, job_exp_years, job_title, job_resp, resume_oov,
-    ):
-        """Sequential fallback for component scoring."""
-        from app.services.semantic_matcher import SemanticScoreResult
-
-        try:
-            kw_result = self._kw.score(
-                resume_text=resume_text,
-                resume_skills=resume_skills,
-                job_description=job_desc, 
-                job_required_skills=job_skills_req,
-                job_nice_to_have_skills=job_skills_nth,
-                oov_skills=resume_oov,
-            )
-        except Exception as e:
-            logger.warning("kw scorer failed: %s", e)
-            kw_result = 0.0
-
-        try:
-            sem_result = self._sem.score(
-                resume_skills=resume_skills, resume_summary=summary_text,
-                resume_experience=resume_exp, job_title=job_title,
-                job_description=job_desc, job_required_skills=job_skills_req,
-                job_responsibilities=job_resp,
-            )
-        except Exception as e:
-            logger.warning("sem scorer failed: %s", e)
-            sem_result = SemanticScoreResult(score=0.0, raw_cosine=0.0, available=False)
-
-        try:
-            exp_result = self._exp.score(
-                candidate_years=resume_years, required_years=job_exp_years,
-                job_title=job_title, education=resume_edu, experience=resume_exp,
-            )
-        except Exception as e:
-            logger.warning("exp scorer failed: %s", e)
-            exp_result = 0.0
-
-        try:
-            sq_result = self._sq.score(
-                skills=resume_skills, experience=resume_exp, education=resume_edu,
-                summary_text=summary_text, raw_text_length=len(resume_text),
-            )
-        except Exception as e:
-            logger.warning("sq scorer failed: %s", e)
-            sq_result = 0.0
-
-        try:
-            sq_missing = self._sq.get_missing_sections(
-                skills=resume_skills, experience=resume_exp, education=resume_edu,
-                summary_text=summary_text, raw_text_length=len(resume_text),
-            )
-        except Exception:
-            sq_missing = []
-
-        return kw_result, sem_result, exp_result, sq_result, sq_missing
+        kw_score = self._kw.score(
+            resume_text=resume_text,
+            resume_skills=resume_skills,
+            job_description=job_desc,
+            job_required_skills=job_skills_req,
+            job_nice_to_have_skills=job_skills_nth,
+            oov_skills=resume_oov,
+        )
+        sem_result = self._sem.score(
+            resume_skills=resume_skills,
+            resume_summary=summary_text,
+            resume_experience=resume_exp,
+            job_title=job_title,
+            job_description=job_desc,
+            job_required_skills=job_skills_req,
+            job_responsibilities=job_resp,
+        )
+        exp_score = self._exp.score(
+            candidate_years=resume_years,
+            required_years=job_exp_years,
+            job_title=job_title,
+            education=resume_edu,
+            experience=resume_exp,
+        )
+        sq_score = self._sq.score(
+            skills=resume_skills,
+            experience=resume_exp,
+            education=resume_edu,
+            summary_text=summary_text,
+            raw_text_length=len(resume_text),
+        )
+        sq_missing = self._sq.get_missing_sections(
+            skills=resume_skills,
+            experience=resume_exp,
+            education=resume_edu,
+            summary_text=summary_text,
+            raw_text_length=len(resume_text),
+        )
+        return kw_score, sem_result, exp_score, sq_score, sq_missing
 
     # ── Helpers ────────────────────────────────────────────────────────────────
 

@@ -140,8 +140,6 @@ class ServiceFactory:
             explainability_engine=explainability_engine,
             ats_score_repo=repos["ats_score"],
             weights=cfg("ATS_SCORE_WEIGHTS", None),
-            parallel_scoring=cfg("ATS_PARALLEL_SCORING", True),
-            scoring_timeout_seconds=cfg("ATS_SCORING_TIMEOUT", 10.0),
             threshold_excellent=cfg("ATS_SCORE_THRESHOLD_EXCELLENT", 0.80),
             threshold_good=cfg("ATS_SCORE_THRESHOLD_GOOD",      0.65),
             threshold_fair=cfg("ATS_SCORE_THRESHOLD_FAIR",      0.50),
