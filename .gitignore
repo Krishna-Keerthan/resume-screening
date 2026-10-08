@@ -237,8 +237,6 @@ static/uploads/
 
 # =========================
 
-migrations/
-
 alembic/versions/
 
 # Audit report: local only until Phase 1 is merged
