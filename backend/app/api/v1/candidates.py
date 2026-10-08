@@ -454,8 +454,8 @@ def get_job_recommendations(candidate_id: str):
             resume=resume,
             top_n=top_n,
             min_score=min_score,
-            location=location,
-            job_type=job_type,
+            location_filter=location,
+            job_type_filter=job_type,
         )
 
         return success(
