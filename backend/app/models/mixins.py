@@ -2,27 +2,6 @@
 app/models/mixins.py
 
 Reusable SQLAlchemy ORM mixins.
-
-FIXES APPLIED:
-  MX-01 — SoftDeleteMixin.to_dict() had a falsy condition bug.
-
-    Original:
-        if exclude and "deleted_at" not in exclude:
-            ...
-
-    Problem: when `exclude=None` (the default), `if exclude` is False so the
-    `deleted_at` field was NEVER serialised into the output dict, even though
-    callers expected it to be present.
-
-    Fix: changed the guard to:
-        if not exclude or "deleted_at" not in exclude:
-            ...
-
-    This means:
-      • exclude=None  → include deleted_at  (was broken — now fixed)
-      • exclude=set() → include deleted_at  (unchanged)
-      • exclude={"deleted_at"} → skip it    (unchanged — callers who
-                                              explicitly exclude it still work)
 """
 
 import logging
@@ -110,16 +89,9 @@ class SoftDeleteMixin:
         """
         Override to_dict to include soft-delete fields.
 
-        FIX MX-01: Original guard was `if exclude and "deleted_at" not in exclude`
-        which evaluated to False when exclude=None (the default), so deleted_at
-        was silently omitted from ALL default serialisations.
-
-        Corrected guard: `if not exclude or "deleted_at" not in exclude`
-          • exclude=None  → always include deleted_at  ← was broken, now fixed
-          • exclude={"deleted_at"} → still excluded     ← callers that opt out
+        deleted_at is included unless the caller lists it in `exclude`.
         """
         d = super().to_dict(exclude=exclude)  # type: ignore[misc]
-        # FIX MX-01: was `if exclude and ...` — should be `if not exclude or ...`
         if not exclude or "deleted_at" not in exclude:
             val = self.deleted_at
             d["deleted_at"] = val.isoformat() if val else None
