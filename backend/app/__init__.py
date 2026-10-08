@@ -330,6 +330,12 @@ def _validate_config(app: Flask) -> None:
         },
     )
 
+    # ── File storage ──────────────────────────────────────────────────────────
+    # Raises in every environment: a misconfigured provider must not boot and
+    # silently write uploads somewhere else.
+    from app.services.storage_service import StorageService
+    StorageService.from_config(app.config)
+
     # ── Groq API key ──────────────────────────────────────────────────────────
     if not app.config.get("GROQ_API_KEY"):
         logger.warning("GROQ_API_KEY is not set. Groq-powered features will be unavailable.")

@@ -80,13 +80,18 @@ class StorageService:
             api_key    = cfg("CLOUDINARY_API_KEY", "")
             api_secret = cfg("CLOUDINARY_API_SECRET", "")
 
-            if not all([cloud_name, api_key, api_secret]):
-                logger.warning(
-                    "STORAGE_PROVIDER=cloudinary but Cloudinary credentials are incomplete. "
-                    "Falling back to local storage."
+            missing = [
+                key for key, value in (
+                    ("CLOUDINARY_CLOUD_NAME", cloud_name),
+                    ("CLOUDINARY_API_KEY",    api_key),
+                    ("CLOUDINARY_API_SECRET", api_secret),
                 )
-                return LocalStorageBackend(
-                    upload_dir=cfg("UPLOAD_FOLDER", "/tmp/uploads"),
+                if not value
+            ]
+            if missing:
+                raise StorageError(
+                    "STORAGE_PROVIDER=cloudinary but these settings are empty: "
+                    + ", ".join(missing)
                 )
 
             return CloudinaryStorageBackend(
