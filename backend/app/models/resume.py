@@ -22,7 +22,7 @@ import json
 import logging
 from typing import Any
 
-from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -31,6 +31,9 @@ from app.models.enums import ParseStatus, SA_PARSE_STATUS
 from app.models.mixins import SoftDeleteMixin
 
 logger = logging.getLogger(__name__)
+
+# JSONB on PostgreSQL, generic JSON elsewhere (SQLite in tests/dev)
+JSONType = JSON().with_variant(JSONB, "postgresql")
 
 
 class Resume( SoftDeleteMixin, BaseModel):
@@ -66,14 +69,14 @@ class Resume( SoftDeleteMixin, BaseModel):
 
     # ── Parsed content (JSON-serialised lists) ────────────────────────────────
     raw_text:       Mapped[str | None] = mapped_column(Text, nullable=True)
-    skills:         Mapped[str | None] = mapped_column(JSONB, nullable=True)
-    education:      Mapped[str | None] = mapped_column(JSONB, nullable=True)
-    experience:     Mapped[str | None] = mapped_column(JSONB, nullable=True)
-    certifications: Mapped[str | None] = mapped_column(JSONB, nullable=True)
-    projects:       Mapped[str | None] = mapped_column(JSONB, nullable=True)
+    skills:         Mapped[str | None] = mapped_column(JSONType, nullable=True)
+    education:      Mapped[str | None] = mapped_column(JSONType, nullable=True)
+    experience:     Mapped[str | None] = mapped_column(JSONType, nullable=True)
+    certifications: Mapped[str | None] = mapped_column(JSONType, nullable=True)
+    projects:       Mapped[str | None] = mapped_column(JSONType, nullable=True)
     summary_text:   Mapped[str | None] = mapped_column(Text, nullable=True)
-    contact_info:   Mapped[str | None] = mapped_column(JSONB, nullable=True)
-    oov_skills_list:Mapped[str | None] = mapped_column(JSONB, nullable=True)
+    contact_info:   Mapped[str | None] = mapped_column(JSONType, nullable=True)
+    oov_skills_list:Mapped[str | None] = mapped_column(JSONType, nullable=True)
 
     # ── Computed metrics ──────────────────────────────────────────────────────
     total_experience_years: Mapped[float] = mapped_column(Float,   default=0.0, nullable=False)
