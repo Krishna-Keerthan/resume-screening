@@ -91,10 +91,11 @@ def test_validation_error_includes_errors_dict(app):
 def test_accepted_returns_202(app):
     with app.app_context():
         from app.core.responses import accepted
-        resp, status = accepted(data={"job_id": "bg-1"})
+        resp, status = accepted(message="Queued.")
         assert status == 202
         body = json.loads(resp.data)
         assert body["success"] is True
+        assert body["message"] == "Queued."
 
 
 def test_error_with_details(app):

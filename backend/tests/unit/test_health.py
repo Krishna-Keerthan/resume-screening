@@ -14,8 +14,7 @@ def test_liveness_returns_200(client):
     body = resp.get_json()
     assert body["success"] is True
     assert body["data"]["status"] == "ok"
-    assert "timestamp" in body["data"]
-    assert "version" in body["data"]
+    assert body["data"]["uptime_seconds"] >= 0
 
 
 def test_readiness_returns_200_with_db(client):
@@ -23,7 +22,8 @@ def test_readiness_returns_200_with_db(client):
     assert resp.status_code == 200
     body = resp.get_json()
     assert body["success"] is True
-    assert body["data"]["checks"]["database"] == "ok"
+    assert body["data"]["status"] == "ready"
+    assert body["data"]["checks"]["database"] == {"status": "ok"}
 
 
 def test_liveness_response_headers(client):
