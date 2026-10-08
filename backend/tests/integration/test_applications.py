@@ -22,6 +22,14 @@ class TestListApplications:
     def test_data_is_list(self, client, db):
         assert isinstance(client.get(f"{BASE}/").get_json()["data"], list)
 
+    def test_unfiltered_list_includes_application(self, client, db, sample_application):
+        body = client.get(f"{BASE}/").get_json()
+        assert sample_application.id in [a["id"] for a in body["data"]]
+
+    def test_unfiltered_list_filters_by_stage(self, client, db, sample_application):
+        body = client.get(f"{BASE}/?stage=hired").get_json()
+        assert sample_application.id not in [a["id"] for a in body["data"]]
+
     def test_filter_by_job_id(self, client, db, sample_application, sample_job):
         body = client.get(f"{BASE}/?job_id={sample_job.id}").get_json()
         ids = [a["id"] for a in body["data"]]

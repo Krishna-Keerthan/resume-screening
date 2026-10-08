@@ -58,6 +58,12 @@ class TestListJobs:
         body = client.get(f"{BASE}/?job_type=full-time").get_json()
         assert body["success"] is True
 
+    def test_status_filter_returns_closed_job(self, client, db, sample_job, sample_job_closed):
+        r = client.get(f"{BASE}/?status=closed")
+        assert r.status_code == 200
+        ids = [j["id"] for j in r.get_json()["data"]]
+        assert ids == [sample_job_closed.id]
+
     def test_invalid_job_type_400(self, client, db):
         r = client.get(f"{BASE}/?job_type=gig-work")
         assert r.status_code == 400

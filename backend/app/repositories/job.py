@@ -19,10 +19,15 @@ class JobRepository(BaseRepository[Job]):
 
     model = Job
 
-    def list_active(
+    def list_active(self, **filters) -> tuple[list[Job], int]:
+        """Paginated active jobs; same filters as list_all()."""
+        return self.list_all(status=JobStatus.ACTIVE.value, **filters)
+
+    def list_all(
         self,
         page: int = 1,
         limit: int = 20,
+        status: str | None = None,
         search: str | None = None,
         location: str | None = None,
         job_type: str | None = None,
@@ -31,18 +36,14 @@ class JobRepository(BaseRepository[Job]):
         max_experience: float | None = None,
     ) -> tuple[list[Job], int]:
         """
-        Paginated active jobs with optional filters.
+        Paginated jobs with optional filters; any status unless one is given.
 
         Automatically excludes soft-deleted jobs (is_deleted=False).
         """
-        query = (
-            db.session.query(Job)
-            .filter(
-                Job.is_deleted == False,       # noqa: E712
-                Job.status == JobStatus.ACTIVE.value,
-            )
-        )
+        query = db.session.query(Job).filter(Job.is_deleted == False)  # noqa: E712
 
+        if status:
+            query = query.filter(Job.status == status)
         if search:
             pattern = f"%{search.strip()}%"
             query = query.filter(
