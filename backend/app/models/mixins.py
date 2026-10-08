@@ -132,7 +132,7 @@ class SoftDeleteMixin:
 
 class SearchableMixin:
     """
-    Adds a class-method helper for building ILIKE search filters.
+    Adds a class-method helper for building case-insensitive substring filters.
 
     Usage:
         query = Job.search_filter(query, search_term, [Job.title, Job.company])
@@ -143,14 +143,14 @@ class SearchableMixin:
     @classmethod
     def search_filter(cls, query, term: str, columns: list):
         """
-        Apply ILIKE filter across multiple text columns (OR logic).
+        Apply a case-insensitive substring filter across text columns (OR logic).
 
-        Works on both PostgreSQL (uses native ILIKE) and SQLite
-        (SQLAlchemy translates ILIKE to LIKE, case-insensitive by default).
+        % and _ in the term are escaped, so they match literally instead of
+        acting as LIKE wildcards.
 
         Args:
             query:   Active SQLAlchemy query object.
-            term:    Search string (stripped, lowercased internally).
+            term:    Search string (stripped).
             columns: List of mapped column attributes to search across.
 
         Returns:
@@ -159,8 +159,7 @@ class SearchableMixin:
         if not term or not term.strip():
             return query
 
-        pattern = f"%{term.strip()}%"
         from sqlalchemy import or_
         return query.filter(
-            or_(*[col.ilike(pattern) for col in columns])
+            or_(*[col.icontains(term.strip(), autoescape=True) for col in columns])
         )
