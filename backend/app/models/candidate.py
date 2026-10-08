@@ -3,22 +3,6 @@ app/models/candidate.py
 
 Candidate profile model.
 
-FIXES APPLIED:
-  MD-01 — MRO (Method Resolution Order) inversion.
-
-    Original:  class Candidate(BaseModel, SoftDeleteMixin)
-    Problem:   Python's C3 linearisation resolves to_dict() from BaseModel
-               first. SoftDeleteMixin.to_dict() calls super().to_dict(), which
-               is also BaseModel.to_dict() when Candidate appears first.
-               Result: the MRO chain was correct by accident here, but the
-               pattern is fragile and breaks when a third mixin is added.
-
-    Fixed:     class Candidate(SoftDeleteMixin, BaseModel)
-               MRO: Candidate → SoftDeleteMixin → BaseModel → ...
-               SoftDeleteMixin.to_dict() runs first, enriches the dict with
-               soft-delete fields, then calls super() to reach BaseModel.
-               This is the intended pattern for cooperative multiple inheritance.
-
 JWT Auth changes (Phase 7):
   - password_hash: scrypt-hashed password stored by /auth/register/candidate.
     Nullable so existing rows migrate safely — old accounts simply cannot log
@@ -38,16 +22,9 @@ from sqlalchemy import Boolean, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import BaseModel, db
-
-# FIX MD-01: import order matters; SoftDeleteMixin must come before BaseModel in MRO
 from app.models.mixins import SoftDeleteMixin
 
 
-# FIX MD-01: was (BaseModel, SoftDeleteMixin) — now (SoftDeleteMixin, BaseModel)
-# MRO is now: Candidate → SoftDeleteMixin → BaseModel → db.Model → ...
-# SoftDeleteMixin.to_dict() enriches the dict, then delegates to BaseModel.to_dict()
-# via super(). With the old order, to_dict() resolved to BaseModel first and
-# SoftDeleteMixin's fields were appended inconsistently.
 class Candidate(SoftDeleteMixin, BaseModel):
     """
     Job-seeker profile.

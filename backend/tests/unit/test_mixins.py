@@ -39,3 +39,19 @@ class TestSearchFilter:
         _job(sample_recruiter.id, "C_Sharp Engineer")
         _job(sample_recruiter.id, "CxSharp Engineer")
         assert self._titles(db, "C_Sharp") == {"C_Sharp Engineer"}
+
+
+def test_soft_delete_mixin_precedes_base_model():
+    # SoftDeleteMixin.to_dict() must run before BaseModel.to_dict(), or
+    # deleted_at silently disappears from serialised output.
+    from app.core.database import BaseModel
+    from app.models.mixins import SoftDeleteMixin
+
+    soft_deletable = [
+        m.class_ for m in BaseModel.registry.mappers
+        if issubclass(m.class_, SoftDeleteMixin)
+    ]
+    assert soft_deletable
+    for model in soft_deletable:
+        mro = model.__mro__
+        assert mro.index(SoftDeleteMixin) < mro.index(BaseModel), model.__name__
