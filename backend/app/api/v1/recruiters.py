@@ -149,7 +149,7 @@ def delete_recruiter(recruiter_id: str):
         repo      = RecruiterRepository()
         recruiter = repo.get_by_id(recruiter_id)
 
-        if not recruiter or not getattr(recruiter, "is_active", True):
+        if not recruiter or recruiter.is_deleted:
             return error(
                 f"Recruiter '{recruiter_id}' not found.",
                 code="RECRUITER_NOT_FOUND",

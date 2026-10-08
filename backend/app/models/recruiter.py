@@ -10,7 +10,7 @@ JWT Auth changes (Phase 7):
 All other fields, indexes, and relationships are unchanged from Phase 2.
 
 Relationships:
-  - jobs: one-to-many Job (cascade: all, delete-orphan)
+  - jobs: one-to-many Job (no delete cascade: deleting a recruiter never deletes jobs)
 """
 
 from typing import Any
@@ -20,9 +20,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import BaseModel
 from app.models.enums import CompanySize, SA_COMPANY_SIZE
+from app.models.mixins import SoftDeleteMixin
 
 
-class Recruiter(BaseModel):
+class Recruiter(SoftDeleteMixin, BaseModel):
     """
     Recruiter account — posts jobs, manages applicants, tracks hiring metrics.
     """
@@ -74,7 +75,7 @@ class Recruiter(BaseModel):
     jobs: Mapped[list] = relationship(
         "Job",
         back_populates="recruiter",
-        cascade="all, delete-orphan",
+        cascade="save-update, merge",
         lazy="select",
         order_by="Job.created_at.desc()",
     )
