@@ -11,10 +11,6 @@ IMPROVEMENTS OVER ORIGINAL
         (not just keyword), preserving the relative balance between
         experience and section_quality scores.
 
-  [SC3] score_raw() now passes job_responsibilities to semantic_matcher
-        when the input dict contains it — previously responsibilities were
-        silently ignored in preview scoring.
-
   [SC4] Component scores are now individually clamped to [0.0, 1.0] before
         weighting — prevents a single malformed scorer from making the
         final score exceed 1.0.
@@ -81,6 +77,30 @@ class ScoringResult:
     semantic_component_scores: dict = field(default_factory=dict)
     from_cache:               bool  = False
 
+
+def scorer_inputs(resume, job) -> dict:
+    """
+    score_raw() keyword arguments for a stored Resume x Job pair.
+
+    The saved pipeline and every preview build their inputs here, so a
+    preview reports the same score that score_resume_job() would save.
+    """
+    resume_skills = resume.skills_list
+    return {
+        "resume_text":             resume.raw_text or " ".join(resume_skills),
+        "resume_skills":           resume_skills,
+        "resume_experience":       resume.experience_list,
+        "resume_education":        resume.education_list,
+        "resume_experience_years": resume.total_experience_years,
+        "summary_text":            resume.summary_text or "",
+        "resume_oov":              resume.oov_skills_list_parsed,
+        "job_title":               job.title,
+        "job_description":         job.description or "",
+        "job_required_skills":     job.required_skills_list,
+        "job_nice_to_have_skills": job.nice_to_have_skills_list,
+        "job_experience_years":    job.experience_years,
+        "job_responsibilities":    job.responsibilities_list,
+    }
 
 class AtsScorerService:
     """
@@ -182,74 +202,31 @@ class AtsScorerService:
         job_nice_to_have_skills: Optional[list[str]] = None,
         job_experience_years: float = 0.0,
         summary_text: str = "",
-        job_responsibilities: Optional[list[str]] = None,  # [SC3]
+        job_responsibilities: Optional[list[str]] = None,
+        resume_oov: Optional[list[str]] = None,
     ) -> dict:
         """
-        [SC3][SC4] Score raw data without ORM objects or DB writes.
+        Score raw data without ORM objects or DB writes.
 
-        Now passes job_responsibilities to semantic_matcher.
+        For a stored Resume x Job pair, call ``score_raw(**scorer_inputs(resume, job))``
+        so the result matches what score_resume_job() saves.
         """
-        nice_to_have = job_nice_to_have_skills or []
-        responsibilities = job_responsibilities or []
-
-        kw_score = self._kw.score(
+        scores, _ = self._run_components(
             resume_text=resume_text,
             resume_skills=resume_skills,
-            job_description=job_description,
-            job_required_skills=job_required_skills,
-            job_nice_to_have_skills=nice_to_have,
-            oov_skills=[],
-            
-        )
-
-        sem_result = self._sem.score(
-            resume_skills=resume_skills,
-            resume_summary=summary_text,
-            resume_experience=[e.get("title", "") for e in resume_experience],
+            resume_experience=resume_experience,
+            resume_education=resume_education,
+            resume_experience_years=resume_experience_years,
             job_title=job_title,
             job_description=job_description,
             job_required_skills=job_required_skills,
-            job_responsibilities=responsibilities,   # [SC3]
-        )
-
-        exp_score = self._exp.score(
-            candidate_years=resume_experience_years,
-            required_years=job_experience_years,
-            job_title=job_title,
-            education=resume_education,
-            experience=resume_experience,
-        )
-
-        sq_score = self._sq.score(
-            skills=resume_skills,
-            experience=resume_experience,
-            education=resume_education,
+            job_nice_to_have_skills=job_nice_to_have_skills or [],
+            job_experience_years=job_experience_years,
             summary_text=summary_text,
-            certifications=[],
-            projects=[],
-            raw_text_length=len(resume_text),
+            job_responsibilities=job_responsibilities or [],
+            resume_oov=resume_oov or [],
         )
-
-        # [SC4] Clamp individual scores
-        kw_score  = max(0.0, min(1.0, kw_score))
-        exp_score = max(0.0, min(1.0, exp_score))
-        sq_score  = max(0.0, min(1.0, sq_score))
-
-        eff_sem = sem_result.score if sem_result.available else kw_score
-        eff_sem = max(0.0, min(1.0, eff_sem))
-
-        final = self._compute_final(kw_score, eff_sem, exp_score, sq_score, sem_result.available)
-
-        return {
-            "final_score":             final,
-            "semantic_score":          sem_result.score,
-            "keyword_score":           kw_score,
-            "experience_score":        exp_score,
-            "section_quality_score":   sq_score,
-            "semantic_available":      sem_result.available,
-            "semantic_component_scores": sem_result.component_scores,  # [SC5]
-            "weights_used":            self._weights,
-        }
+        return scores
 
     # ── Pipeline ───────────────────────────────────────────────────────────────
 
@@ -261,46 +238,9 @@ class AtsScorerService:
         use_llm: bool,
     ) -> ScoringResult:
         """Execute the scoring pipeline and write results."""
-
-        resume_skills   = resume.skills_list
-        resume_text     = resume.raw_text or " ".join(resume_skills)
-        resume_exp      = resume.experience_list
-        resume_edu      = resume.education_list
-        resume_years    = resume.total_experience_years
-        summary_text    = resume.summary_text or ""
-        resume_oov      = getattr(resume, "oov_skills_list_parsed", [])
-
-        job_skills_req  = job.required_skills_list
-        job_skills_nth  = job.nice_to_have_skills_list
-        job_desc        = job.description or ""
-        job_exp_years   = job.experience_years
-        job_resp        = getattr(job, "responsibilities_list", []) or []
-
-        kw_score, sem_result, exp_score, sq_score, sq_missing = self._run_components(
-            resume_skills=resume_skills,
-            resume_text=resume_text,
-            resume_exp=resume_exp,
-            resume_edu=resume_edu,
-            resume_years=resume_years,
-            summary_text=summary_text,
-            job_skills_req=job_skills_req,
-            job_skills_nth=job_skills_nth,
-            job_desc=job_desc,
-            job_exp_years=job_exp_years,
-            job_title=job.title,
-            job_resp=job_resp,
-            resume_oov=resume_oov,
-        )
-
-        # [SC4] Clamp each component
-        kw_score  = max(0.0, min(1.0, kw_score))
-        exp_score = max(0.0, min(1.0, exp_score))
-        sq_score  = max(0.0, min(1.0, sq_score))
-
-        eff_sem = sem_result.score if sem_result.available else kw_score
-        eff_sem = max(0.0, min(1.0, eff_sem))
-
-        final = self._compute_final(kw_score, eff_sem, exp_score, sq_score, sem_result.available)
+        inputs = scorer_inputs(resume, job)
+        scores, sq_missing = self._run_components(**inputs)
+        final = scores["final_score"]
 
         score_to_label = _get_score_to_label()
         label = score_to_label(
@@ -312,33 +252,32 @@ class AtsScorerService:
 
         explanation = self._expl.explain(
             final_score=final,
-            semantic_score=sem_result.score,
-            keyword_score=kw_score,
-            experience_score=exp_score,
-            section_quality_score=sq_score,
-            resume_skills=resume_skills,
-            job_title=job.title,
-            job_required_skills=job_skills_req,
-            job_nice_to_have_skills=job_skills_nth,
-            candidate_years=resume_years,
-            required_years=job_exp_years,
+            semantic_score=scores["semantic_score"],
+            keyword_score=scores["keyword_score"],
+            experience_score=scores["experience_score"],
+            section_quality_score=scores["section_quality_score"],
+            resume_skills=inputs["resume_skills"],
+            job_title=inputs["job_title"],
+            job_required_skills=inputs["job_required_skills"],
+            job_nice_to_have_skills=inputs["job_nice_to_have_skills"],
+            candidate_years=inputs["resume_experience_years"],
+            required_years=inputs["job_experience_years"],
             missing_sections=sq_missing,
             use_llm=use_llm,
             weights=self._weights,
-            semantic_component_scores=sem_result.component_scores
-
+            semantic_component_scores=scores["semantic_component_scores"],
         )
 
         ats_record = self._build_ats_record(
             resume_id=resume.id,
             job_id=job.id,
             scores={
-                "semantic":           sem_result.score,
-                "keyword":            kw_score,
-                "experience":         exp_score,
-                "section_quality":    sq_score,
+                "semantic":           scores["semantic_score"],
+                "keyword":            scores["keyword_score"],
+                "experience":         scores["experience_score"],
+                "section_quality":    scores["section_quality_score"],
                 "final":              final,
-                "semantic_available": sem_result.available,
+                "semantic_available": scores["semantic_available"],
             },
             explanation={
                 "matched_skills":   explanation.matched_skills,
@@ -358,11 +297,11 @@ class AtsScorerService:
             job_id=job.id,
             final_score=final,
             score_label=label.value,
-            semantic_score=sem_result.score,
-            keyword_score=kw_score,
-            experience_score=exp_score,
-            section_quality_score=sq_score,
-            semantic_available=sem_result.available,
+            semantic_score=scores["semantic_score"],
+            keyword_score=scores["keyword_score"],
+            experience_score=scores["experience_score"],
+            section_quality_score=scores["section_quality_score"],
+            semantic_available=scores["semantic_available"],
             matched_skills=explanation.matched_skills,
             missing_skills=explanation.missing_skills,
             extra_skills=explanation.extra_skills,
@@ -371,7 +310,7 @@ class AtsScorerService:
             hiring_recommendation=explanation.hiring_recommendation,
             weights_used=self._weights,
             ats_score_id=saved.id if saved else None,
-            semantic_component_scores=sem_result.component_scores,   # [SC5]
+            semantic_component_scores=scores["semantic_component_scores"],
         )
 
     # ── Component scoring ──────────────────────────────────────────────────────
@@ -379,55 +318,79 @@ class AtsScorerService:
     def _run_components(
         self,
         *,
-        resume_skills, resume_text, resume_exp, resume_edu,
-        resume_years, summary_text, job_skills_req, job_skills_nth,
-        job_desc, job_exp_years, job_title, job_resp, resume_oov,
-    ):
+        resume_text, resume_skills, resume_experience, resume_education,
+        resume_experience_years, job_title, job_description, job_required_skills,
+        job_nice_to_have_skills, job_experience_years, summary_text,
+        job_responsibilities, resume_oov,
+    ) -> tuple[dict, list[str]]:
         """
-        Run the four component scorers one after another.
+        Run the four component scorers one after another and combine them.
 
         Scorer exceptions propagate, so the caller reports the failure
         instead of silently scoring that component as 0.0.
+
+        Returns (scores, missing_sections).
         """
         kw_score = self._kw.score(
             resume_text=resume_text,
             resume_skills=resume_skills,
-            job_description=job_desc,
-            job_required_skills=job_skills_req,
-            job_nice_to_have_skills=job_skills_nth,
+            job_description=job_description,
+            job_required_skills=job_required_skills,
+            job_nice_to_have_skills=job_nice_to_have_skills,
             oov_skills=resume_oov,
         )
         sem_result = self._sem.score(
             resume_skills=resume_skills,
             resume_summary=summary_text,
-            resume_experience=resume_exp,
+            resume_experience=resume_experience,
             job_title=job_title,
-            job_description=job_desc,
-            job_required_skills=job_skills_req,
-            job_responsibilities=job_resp,
+            job_description=job_description,
+            job_required_skills=job_required_skills,
+            job_responsibilities=job_responsibilities,
         )
         exp_score = self._exp.score(
-            candidate_years=resume_years,
-            required_years=job_exp_years,
+            candidate_years=resume_experience_years,
+            required_years=job_experience_years,
             job_title=job_title,
-            education=resume_edu,
-            experience=resume_exp,
+            education=resume_education,
+            experience=resume_experience,
         )
         sq_score = self._sq.score(
             skills=resume_skills,
-            experience=resume_exp,
-            education=resume_edu,
+            experience=resume_experience,
+            education=resume_education,
             summary_text=summary_text,
             raw_text_length=len(resume_text),
         )
         sq_missing = self._sq.get_missing_sections(
             skills=resume_skills,
-            experience=resume_exp,
-            education=resume_edu,
+            experience=resume_experience,
+            education=resume_education,
             summary_text=summary_text,
             raw_text_length=len(resume_text),
         )
-        return kw_score, sem_result, exp_score, sq_score, sq_missing
+
+        # [SC4] Clamp each component
+        kw_score  = max(0.0, min(1.0, kw_score))
+        exp_score = max(0.0, min(1.0, exp_score))
+        sq_score  = max(0.0, min(1.0, sq_score))
+
+        eff_sem = sem_result.score if sem_result.available else kw_score
+        eff_sem = max(0.0, min(1.0, eff_sem))
+
+        final = self._compute_final(kw_score, eff_sem, exp_score, sq_score, sem_result.available)
+
+        scores = {
+            "final_score":               final,
+            "semantic_score":            sem_result.score,
+            "keyword_score":             kw_score,
+            "experience_score":          exp_score,
+            "section_quality_score":     sq_score,
+            "semantic_available":        sem_result.available,
+            "semantic_component_scores": sem_result.component_scores,
+            "weights_used":              self._weights,
+        }
+        return scores, sq_missing
 
     # ── Helpers ────────────────────────────────────────────────────────────────
 

@@ -17,6 +17,7 @@ import logging
 from flask import Blueprint, request
 
 from app.core.responses import error, success, success_list
+from app.services.ats_scorer import scorer_inputs
 from app.schemas.scoring import (
     AtsScoreQuerySchema,
     JobRecommendationsSchema,
@@ -74,18 +75,7 @@ def match_resume_to_job():
         if save_result:
             result = svcs.ats_scorer.score_resume_job(resume=resume, job=job)
         else:
-            result_dict = svcs.ats_scorer.score_raw(
-                resume_text=getattr(resume, "raw_text", "") or "",
-                resume_skills=getattr(resume, "skills_list", []) or [],
-                resume_experience=getattr(resume, "experience_list", []) or [],
-                resume_education=getattr(resume, "education_list", []) or [],
-                resume_experience_years=getattr(resume, "total_experience_years", 0.0) or 0.0,
-                job_title=getattr(job, "title", ""),
-                job_description=getattr(job, "description", ""),
-                job_required_skills=getattr(job, "required_skills_list", []) or [],
-                job_nice_to_have_skills=getattr(job, "nice_to_have_skills_list", []) or [],
-                job_experience_years=getattr(job, "experience_years", 0.0) or 0.0,
-            )
+            result_dict = svcs.ats_scorer.score_raw(**scorer_inputs(resume, job))
             return success(
                 data={"resume_id": resume_id, "job_id": job_id, "saved": False, **result_dict},
                 message="Score computed (not saved).",

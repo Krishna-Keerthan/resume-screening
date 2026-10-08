@@ -29,6 +29,7 @@ from flask import Blueprint, current_app, request
 
 from app.core.responses import error, no_content, success, success_list
 from app.schemas.resume import AnalyzeResumeSchema, ResumeQuerySchema
+from app.services.ats_scorer import scorer_inputs
 
 from ._helpers import (
     get_services,
@@ -332,27 +333,8 @@ def score_preview(resume_id: str):
 
         svcs = get_services()
 
-        resume_skills     = getattr(resume, "skills_list", []) or []
-        resume_experience = getattr(resume, "experience_list", []) or []
-        resume_education  = getattr(resume, "education_list", []) or []
-        resume_years      = getattr(resume, "total_experience_years", 0.0) or 0.0
-        resume_text       = getattr(resume, "raw_text", "") or ""
-        job_required      = getattr(job, "required_skills_list", []) or []
-        job_nice_to_have  = getattr(job, "nice_to_have_skills_list", []) or []
-        job_years         = getattr(job, "experience_years", 0.0) or 0.0
-
-        result = svcs.ats_scorer.score_raw(
-            resume_text=resume_text,
-            resume_skills=resume_skills,
-            resume_experience=resume_experience,
-            resume_education=resume_education,
-            resume_experience_years=resume_years,
-            job_title=getattr(job, "title", ""),
-            job_description=getattr(job, "description", ""),
-            job_required_skills=job_required,
-            job_nice_to_have_skills=job_nice_to_have,
-            job_experience_years=job_years,
-        )
+        inputs = scorer_inputs(resume, job)
+        result = svcs.ats_scorer.score_raw(**inputs)
 
         explanation = svcs.explainability.explain(
             final_score=result["final_score"],
@@ -360,12 +342,12 @@ def score_preview(resume_id: str):
             keyword_score=result["keyword_score"],
             experience_score=result["experience_score"],
             section_quality_score=result["section_quality_score"],
-            resume_skills=resume_skills,
-            job_title=getattr(job, "title", ""),
-            job_required_skills=job_required,
-            job_nice_to_have_skills=job_nice_to_have,
-            candidate_years=resume_years,
-            required_years=job_years,
+            resume_skills=inputs["resume_skills"],
+            job_title=inputs["job_title"],
+            job_required_skills=inputs["job_required_skills"],
+            job_nice_to_have_skills=inputs["job_nice_to_have_skills"],
+            candidate_years=inputs["resume_experience_years"],
+            required_years=inputs["job_experience_years"],
             use_llm=False,
             weights=result["weights_used"],
             semantic_component_scores=result.get("semantic_component_scores", {}),

@@ -313,6 +313,38 @@ def mock_services(app):
     app.extensions["services"] = original
 
 
+class _UnavailableSemantic:
+    """Behaves like SemanticMatcherService when the embedding model is not loaded."""
+
+    def score(self, **kwargs):
+        from app.services.semantic_matcher import SemanticScoreResult
+        return SemanticScoreResult(score=0.0, raw_cosine=0.0, available=False)
+
+
+@pytest.fixture()
+def ats_scorer(db):
+    """
+    A real AtsScorerService: real keyword / experience / section-quality
+    scorers and AtsScore repository; only the embedding model is stubbed.
+    """
+    from app.repositories import AtsScoreRepository
+    from app.services.ats_scorer import AtsScorerService
+    from app.services.experience_scorer import ExperienceScorerService
+    from app.services.explainability_engine import ExplainabilityEngine
+    from app.services.keyword_matcher import KeywordMatcherService
+    from app.services.section_quality_scorer import SectionQualityScorerService
+
+    keyword_matcher = KeywordMatcherService()
+    return AtsScorerService(
+        keyword_matcher=keyword_matcher,
+        semantic_matcher=_UnavailableSemantic(),
+        experience_scorer=ExperienceScorerService(),
+        section_quality_scorer=SectionQualityScorerService(),
+        explainability_engine=ExplainabilityEngine(keyword_matcher=keyword_matcher),
+        ats_score_repo=AtsScoreRepository(),
+    )
+
+
 @pytest.fixture()
 def resume_file():
     return (io.BytesIO(b"%PDF-1.4 fake pdf content"), "test_resume.pdf")
