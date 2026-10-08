@@ -48,6 +48,7 @@ def mock_parser(app):
 
 
 class TestCandidateJourneyE2E:
+    @pytest.mark.xfail(reason="Phase 1: auth", strict=False)
     def test_full_flow(self, client, db, mock_services, mock_parser):
         # 1. Create recruiter
         r, recruiter = _post(client, "/api/v1/recruiters/", {

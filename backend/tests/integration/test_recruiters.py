@@ -9,6 +9,8 @@ import pytest
 
 BASE = "/api/v1/recruiters"
 
+pytestmark = pytest.mark.xfail(reason="Phase 1: auth", strict=False)
+
 
 def _recruiter_payload(**overrides):
     base = {

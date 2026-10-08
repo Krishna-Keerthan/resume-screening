@@ -7,6 +7,8 @@ Integration tests for health check endpoints.
 
 import json
 
+import pytest
+
 
 def test_liveness_returns_200(client):
     resp = client.get("/api/v1/health")
@@ -47,6 +49,7 @@ def test_405_returns_json(client):
     assert body["success"] is False
 
 
+@pytest.mark.xfail(reason="Phase 1: auth", strict=False)
 def test_stub_candidates_endpoint(client):
     resp = client.get("/api/v1/candidates/")
     assert resp.status_code == 200

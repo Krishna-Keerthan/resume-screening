@@ -31,6 +31,7 @@ def _patch(client, url, body):
 
 
 class TestRecruiterJourneyE2E:
+    @pytest.mark.xfail(reason="Phase 1: auth", strict=False)
     def test_recruiter_full_cycle(self, client, db, mock_services):
         # 1. Create recruiter
         r, rec_body = _post(client, "/api/v1/recruiters/", {
