@@ -62,3 +62,30 @@ class TestPreviewMatchesSavedScore:
         assert r.status_code == 200
         saved = ats_scorer.score_resume_job(sample_resume, sample_job, use_llm=False)
         assert body["data"]["final_score"] == saved.final_score
+
+
+class TestStoredScores:
+    def test_cached_result_keeps_semantic_available(self, ats_scorer, sample_resume, sample_job):
+        first = ats_scorer.score_resume_job(sample_resume, sample_job, use_llm=False)
+        cached = ats_scorer.score_resume_job(sample_resume, sample_job, use_llm=False)
+        assert first.semantic_available is False
+        assert cached.from_cache is True
+        assert cached.semantic_available is False
+
+    def test_record_build_failure_is_reported(self, ats_scorer, sample_resume, sample_job,
+                                              monkeypatch):
+        from app.models.ats_score import AtsScore
+
+        def broken(**kwargs):
+            raise ValueError("cannot build record")
+
+        monkeypatch.setattr(AtsScore, "from_score_result", broken)
+        result = ats_scorer.score_resume_job(sample_resume, sample_job, use_llm=False)
+        assert result.error == "cannot build record"
+
+    def test_missing_label_function_is_reported(self, ats_scorer, sample_resume, sample_job,
+                                                monkeypatch):
+        monkeypatch.delattr("app.models.enums.score_to_label")
+        result = ats_scorer.score_resume_job(sample_resume, sample_job, use_llm=False)
+        assert result.error is not None
+        assert "score_to_label" in result.error

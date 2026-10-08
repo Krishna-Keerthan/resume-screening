@@ -39,16 +39,8 @@ logger = logging.getLogger(__name__)
 
 def _get_score_to_label():
     """Lazy import to avoid circular deps at module load time."""
-    try:
-        from app.models.enums import score_to_label
-        return score_to_label
-    except Exception:
-        def _fallback(score, threshold_excellent=0.80, threshold_good=0.65, threshold_fair=0.50):
-            if score >= threshold_excellent: return type('L', (), {'value': 'excellent'})()
-            if score >= threshold_good:      return type('L', (), {'value': 'good'})()
-            if score >= threshold_fair:      return type('L', (), {'value': 'fair'})()
-            return type('L', (), {'value': 'weak'})()
-        return _fallback
+    from app.models.enums import score_to_label
+    return score_to_label
 
 
 @dataclass
@@ -456,7 +448,7 @@ class AtsScorerService:
                 keyword_score=getattr(record, "keyword_score", 0.0),
                 experience_score=getattr(record, "experience_score", 0.0),
                 section_quality_score=getattr(record, "section_quality_score", 0.0),
-                semantic_available=True,
+                semantic_available=record.semantic_available,
                 matched_skills=getattr(record, "matched_skills_list", []),
                 missing_skills=getattr(record, "missing_skills_list", []),
                 extra_skills=getattr(record, "extra_skills_list", []),
@@ -487,28 +479,12 @@ class AtsScorerService:
         resume_id, job_id, scores, explanation, weights, application_id,
     ):
         """Build an AtsScore ORM record from raw score data."""
-        try:
-            from app.models.ats_score import AtsScore
-            return AtsScore.from_score_result(
-                resume_id=resume_id, job_id=job_id,
-                scores=scores, explanation=explanation, weights=weights,
-                application_id=application_id,
-                threshold_excellent=self._threshold_excellent,
-                threshold_good=self._threshold_good,
-                threshold_fair=self._threshold_fair,
-            )
-        except Exception:
-            record = type("AtsScoreRecord", (), {
-                "resume_id":             resume_id,
-                "job_id":                job_id,
-                "final_score":           scores.get("final", 0.0),
-                "score_label":           "fair",
-                "application_id":        application_id,
-                "matched_skills_list":   explanation.get("matched_skills", []),
-                "missing_skills_list":   explanation.get("missing_skills", []),
-                "extra_skills_list":     explanation.get("extra_skills", []),
-                "improvement_tips_list": explanation.get("improvement_tips", []),
-                "summary_text":          explanation.get("summary", ""),
-                "weights_used_dict":     weights,
-            })()
-            return record
+        from app.models.ats_score import AtsScore
+        return AtsScore.from_score_result(
+            resume_id=resume_id, job_id=job_id,
+            scores=scores, explanation=explanation, weights=weights,
+            application_id=application_id,
+            threshold_excellent=self._threshold_excellent,
+            threshold_good=self._threshold_good,
+            threshold_fair=self._threshold_fair,
+        )
