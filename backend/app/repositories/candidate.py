@@ -66,7 +66,7 @@ class CandidateRepository(BaseRepository[Candidate]):
             page, limit:   Pagination.
             search:        Full-text search on full_name, email, headline.
             open_to_work:  Filter by job-seeking status.
-            location:      Filter by location (ILIKE).
+            location:      Filter by location (case-insensitive substring).
 
         Returns:
             (items, total) tuple.
@@ -78,12 +78,12 @@ class CandidateRepository(BaseRepository[Candidate]):
         )
 
         if search:
-            pattern = f"%{search.strip()}%"
+            term = search.strip()
             query = query.filter(
                 or_(
-                    Candidate.full_name.ilike(pattern),
-                    Candidate.email.ilike(pattern),
-                    Candidate.headline.ilike(pattern),
+                    Candidate.full_name.icontains(term, autoescape=True),
+                    Candidate.email.icontains(term, autoescape=True),
+                    Candidate.headline.icontains(term, autoescape=True),
                 )
             )
 
@@ -91,7 +91,7 @@ class CandidateRepository(BaseRepository[Candidate]):
             query = query.filter(Candidate.open_to_work == open_to_work)
 
         if location:
-            query = query.filter(Candidate.location.ilike(f"%{location.strip()}%"))
+            query = query.filter(Candidate.location.icontains(location.strip(), autoescape=True))
 
         total = query.count()
         items = (

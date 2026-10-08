@@ -45,16 +45,16 @@ class JobRepository(BaseRepository[Job]):
         if status:
             query = query.filter(Job.status == status)
         if search:
-            pattern = f"%{search.strip()}%"
+            term = search.strip()
             query = query.filter(
                 or_(
-                    Job.title.ilike(pattern),
-                    Job.company.ilike(pattern),
-                    Job.description.ilike(pattern),
+                    Job.title.icontains(term, autoescape=True),
+                    Job.company.icontains(term, autoescape=True),
+                    Job.description.icontains(term, autoescape=True),
                 )
             )
         if location:
-            query = query.filter(Job.location.ilike(f"%{location.strip()}%"))
+            query = query.filter(Job.location.icontains(location.strip(), autoescape=True))
         if job_type:
             query = query.filter(Job.job_type == job_type)
         if recruiter_id:
