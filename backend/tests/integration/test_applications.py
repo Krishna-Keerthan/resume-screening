@@ -54,6 +54,8 @@ class TestCreateApplication:
     def test_stage_is_applied(self, client, db, json_post,
                               sample_candidate, sample_job, sample_resume, mock_services):
         mock_services.ats_scorer.score_resume_job.return_value.error = None
+        mock_services.ats_scorer.score_resume_job.return_value.final_score = 0.75
+        mock_services.ats_scorer.score_resume_job.return_value.score_label = "good"
         _, body = json_post(f"{BASE}/", self._payload(
             sample_candidate.id, sample_job.id, sample_resume.id))
         assert body["data"]["stage"] == "applied"

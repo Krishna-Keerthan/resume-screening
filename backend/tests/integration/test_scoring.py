@@ -11,31 +11,38 @@ from unittest.mock import MagicMock
 BASE = "/api/v1/scores"
 
 
-def _score_result_mock():
-    m = MagicMock()
-    m.id                   = "mock-ats-id"
-    m.resume_id            = "r-id"
-    m.job_id               = "j-id"
-    m.final_score          = 0.78
-    m.score_label          = "good"
-    m.keyword_score        = 0.80
-    m.semantic_score       = 0.70
-    m.experience_score     = 0.75
-    m.section_quality_score = 0.65
-    m.matched_skills       = ["Python", "Flask"]
-    m.missing_skills       = ["Kubernetes"]
-    m.extra_skills         = ["FastAPI"]
-    m.explanation          = {"strengths": [], "gaps": []}
-    m.error                = None
-    return m
+def _score_result():
+    from app.services.ats_scorer import ScoringResult
+    return ScoringResult(
+        resume_id="r-id",
+        job_id="j-id",
+        final_score=0.78,
+        score_label="good",
+        semantic_score=0.70,
+        keyword_score=0.80,
+        experience_score=0.75,
+        section_quality_score=0.65,
+        semantic_available=True,
+        matched_skills=["Python", "Flask"],
+        missing_skills=["Kubernetes"],
+        extra_skills=["FastAPI"],
+        ats_score_id="mock-ats-id",
+    )
+
+
+def _raw_score():
+    """Same keys AtsScorerService.score_raw returns."""
+    return {
+        "final_score": 0.75, "semantic_score": 0.0, "keyword_score": 0.8,
+        "experience_score": 0.7, "section_quality_score": 0.6,
+        "semantic_available": False, "semantic_component_scores": {},
+        "weights_used": {"semantic": 0.4, "keyword": 0.35, "experience": 0.15, "section": 0.1},
+    }
 
 
 class TestMatchEndpoint:
     def test_preview_mode_200(self, client, db, sample_resume, sample_job, mock_services):
-        mock_services.ats_scorer.score_raw.return_value = {
-            "final_score": 0.75, "score_label": "good",
-            "matched_skills": ["Python"], "missing_skills": [],
-        }
+        mock_services.ats_scorer.score_raw.return_value = _raw_score()
         r = client.post(
             f"{BASE}/match",
             data=json.dumps({
@@ -48,10 +55,10 @@ class TestMatchEndpoint:
         assert r.status_code == 200
         body = r.get_json()
         assert body["success"] is True
-        assert body["data"]["preview"] is True
+        assert body["data"]["saved"] is False
 
     def test_persist_mode_201(self, client, db, sample_resume, sample_job, mock_services):
-        mock_services.ats_scorer.score_resume_job.return_value = _score_result_mock()
+        mock_services.ats_scorer.score_resume_job.return_value = _score_result()
         r = client.post(
             f"{BASE}/match",
             data=json.dumps({
@@ -98,9 +105,9 @@ class TestMatchEndpoint:
 
 class TestRankCandidatesEndpoint:
     def test_returns_200(self, client, db, sample_job, mock_services):
-        mock_services.candidate_ranking.rank_for_job.return_value = MagicMock(
-            candidates=[], total=0, page=1, per_page=20,
-            score_stats=MagicMock(mean=0.0),
+        from app.services.candidate_ranking_service import RankingResult
+        mock_services.candidate_ranking.rank_for_job.return_value = RankingResult(
+            candidates=[], total=0, page=1, per_page=20, score_stats={"mean": 0.0},
         )
         r = client.post(
             f"{BASE}/rank-candidates",
@@ -157,8 +164,8 @@ class TestJobRecommendationsEndpoint:
 
 class TestSkillGapEndpoint:
     def test_with_job_id_200(self, client, db, sample_resume, sample_job, mock_services):
-        mock_services.ats_scorer.skill_gap.return_value = {
-            "matched_skills": ["Python"], "missing_skills": ["Kubernetes"], "extra_skills": [],
+        mock_services.keyword_matcher.get_skill_breakdown.return_value = {
+            "matched": ["python"], "missing": ["kubernetes"], "extra": [],
         }
         r = client.post(
             f"{BASE}/skill-gap",
@@ -167,8 +174,8 @@ class TestSkillGapEndpoint:
         )
         assert r.status_code == 200
         body = r.get_json()
-        assert "matched_skills" in body["data"]
-        assert "missing_skills" in body["data"]
+        assert body["data"]["matched"] == ["python"]
+        assert body["data"]["missing"] == ["kubernetes"]
 
     def test_nonexistent_resume_404(self, client, db, sample_job, mock_services):
         r = client.post(

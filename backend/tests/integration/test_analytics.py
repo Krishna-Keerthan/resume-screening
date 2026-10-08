@@ -70,7 +70,7 @@ class TestPipeline:
             "applied": 10, "reviewed": 5, "hired": 2
         }
         body = client.get(f"{BASE}/pipeline?recruiter_id={sample_recruiter.id}").get_json()
-        assert "pipeline" in body["data"]
+        assert body["data"] == {"applied": 10, "reviewed": 5, "hired": 2}
 
 
 class TestScoreDistribution:
@@ -81,20 +81,16 @@ class TestScoreDistribution:
         assert client.get(f"{BASE}/score-distribution?recruiter_id=nobody").status_code == 404
 
     def test_returns_200(self, client, db, sample_recruiter, mock_services):
-        mock_services.recruiter_analytics.get_score_distribution.return_value = {
-            "excellent": 5, "good": 20, "fair": 12, "weak": 5
-        }
+        mock_services.recruiter_analytics.get_dashboard.return_value = _dashboard_mock()
         r = client.get(f"{BASE}/score-distribution?recruiter_id={sample_recruiter.id}")
         assert r.status_code == 200
 
     def test_score_tiers_present(self, client, db, sample_recruiter, mock_services):
-        mock_services.recruiter_analytics.get_score_distribution.return_value = {
-            "excellent": 5, "good": 20, "fair": 12, "weak": 5
-        }
+        mock_services.recruiter_analytics.get_dashboard.return_value = _dashboard_mock()
         body = client.get(
             f"{BASE}/score-distribution?recruiter_id={sample_recruiter.id}"
         ).get_json()
-        dist = body["data"]["score_distribution"]
+        dist = body["data"]
         for tier in ["excellent", "good", "fair", "weak"]:
             assert tier in dist
 
@@ -104,17 +100,12 @@ class TestSkillsDemand:
         assert client.get(f"{BASE}/skills-demand").status_code == 400
 
     def test_returns_200(self, client, db, sample_recruiter, mock_services):
-        mock_services.recruiter_analytics.get_skills_demand.return_value = [
-            {"skill": "Python", "count": 15},
-            {"skill": "Docker", "count": 10},
-        ]
+        mock_services.recruiter_analytics.get_dashboard.return_value = _dashboard_mock()
         r = client.get(f"{BASE}/skills-demand?recruiter_id={sample_recruiter.id}")
         assert r.status_code == 200
 
     def test_returns_skills_list(self, client, db, sample_recruiter, mock_services):
-        mock_services.recruiter_analytics.get_skills_demand.return_value = [
-            {"skill": "Python", "count": 15},
-        ]
+        mock_services.recruiter_analytics.get_dashboard.return_value = _dashboard_mock()
         body = client.get(
             f"{BASE}/skills-demand?recruiter_id={sample_recruiter.id}"
         ).get_json()
@@ -122,7 +113,7 @@ class TestSkillsDemand:
         assert isinstance(body["data"]["skills"], list)
 
     def test_top_n_param(self, client, db, sample_recruiter, mock_services):
-        mock_services.recruiter_analytics.get_skills_demand.return_value = []
+        mock_services.recruiter_analytics.get_dashboard.return_value = _dashboard_mock()
         r = client.get(f"{BASE}/skills-demand?recruiter_id={sample_recruiter.id}&top_n=5")
         assert r.status_code == 200
 

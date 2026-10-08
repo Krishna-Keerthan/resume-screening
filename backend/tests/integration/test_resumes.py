@@ -149,20 +149,24 @@ class TestScorePreview:
         r = client.get(f"{BASE}/{sample_resume.id}/score-preview?job_id=ghost-job")
         assert r.status_code == 404
 
-    def test_returns_200_with_mock(self, client, db, sample_resume, sample_job, mock_services):
+    @staticmethod
+    def _mock_scoring(mock_services, final_score):
+        """score_raw returns the same keys as AtsScorerService.score_raw."""
+        from app.services.explainability_engine import ExplanationResult
         mock_services.ats_scorer.score_raw.return_value = {
-            "final_score": 0.75, "score_label": "good",
-            "matched_skills": ["Python"], "missing_skills": [],
-            "keyword_score": 0.8, "experience_score": 0.7,
-            "semantic_score": 0.0, "section_quality_score": 0.6,
+            "final_score": final_score, "semantic_score": 0.0, "keyword_score": 0.8,
+            "experience_score": 0.7, "section_quality_score": 0.6,
+            "semantic_available": False, "semantic_component_scores": {},
+            "weights_used": {"semantic": 0.4, "keyword": 0.35, "experience": 0.15, "section": 0.1},
         }
+        mock_services.explainability.explain.return_value = ExplanationResult()
+
+    def test_returns_200_with_mock(self, client, db, sample_resume, sample_job, mock_services):
+        self._mock_scoring(mock_services, final_score=0.75)
         r = client.get(f"{BASE}/{sample_resume.id}/score-preview?job_id={sample_job.id}")
         assert r.status_code == 200
 
     def test_preview_true_in_response(self, client, db, sample_resume, sample_job, mock_services):
-        mock_services.ats_scorer.score_raw.return_value = {
-            "final_score": 0.5, "score_label": "fair",
-            "matched_skills": [], "missing_skills": [],
-        }
+        self._mock_scoring(mock_services, final_score=0.5)
         body = client.get(f"{BASE}/{sample_resume.id}/score-preview?job_id={sample_job.id}").get_json()
         assert body["data"]["preview"] is True
