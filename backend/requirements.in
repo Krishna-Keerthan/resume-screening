@@ -34,6 +34,9 @@ rank-bm25==0.2.2
 # LLM
 groq==1.0.0
 
+# File storage (STORAGE_PROVIDER=cloudinary)
+cloudinary==1.46.3
+
 # Seed data and tests
 Faker==40.12.0
 pytest==9.0.2
