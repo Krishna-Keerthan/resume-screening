@@ -12,19 +12,34 @@ from config.settings import DevelopmentConfig, ProductionConfig, TestingConfig
 
 def test_get_config_development():
     cfg = get_config("development")
-    assert cfg is DevelopmentConfig
+    assert isinstance(cfg, DevelopmentConfig)
     assert cfg.DEBUG is True
 
 
-def test_get_config_production():
+def test_get_config_production(monkeypatch):
+    monkeypatch.setenv("SECRET_KEY", "x" * 64)
+    monkeypatch.setenv("DATABASE_URL", "postgres://user:pw@db:5432/ats")
     cfg = get_config("production")
-    assert cfg is ProductionConfig
+    assert isinstance(cfg, ProductionConfig)
     assert cfg.DEBUG is False
+    assert cfg.SQLALCHEMY_DATABASE_URI == "postgresql://user:pw@db:5432/ats"
+
+
+def test_production_config_requires_secret_key(monkeypatch):
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+    with pytest.raises(EnvironmentError, match="SECRET_KEY"):
+        get_config("production")
+
+
+def test_production_config_rejects_default_secret_key(monkeypatch):
+    monkeypatch.setenv("SECRET_KEY", "dev-secret-change-in-production")
+    with pytest.raises(EnvironmentError, match="SECRET_KEY"):
+        get_config("production")
 
 
 def test_get_config_testing():
     cfg = get_config("testing")
-    assert cfg is TestingConfig
+    assert isinstance(cfg, TestingConfig)
     assert cfg.TESTING is True
 
 
