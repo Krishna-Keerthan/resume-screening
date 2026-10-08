@@ -28,17 +28,17 @@ class TestCandidateModel:
 
     def test_soft_delete(self, db, app, sample_candidate):
         with app.app_context():
-            assert sample_candidate.is_alive() is True
+            assert sample_candidate.is_alive is True
             sample_candidate.soft_delete()
             assert sample_candidate.is_deleted is True
-            assert sample_candidate.is_alive() is False
+            assert sample_candidate.is_alive is False
 
     def test_restore(self, db, app, sample_candidate):
         with app.app_context():
             sample_candidate.soft_delete()
             sample_candidate.restore()
             assert sample_candidate.is_deleted is False
-            assert sample_candidate.is_alive() is True
+            assert sample_candidate.is_alive is True
 
     def test_to_dict_contains_expected_keys(self, db, app, sample_candidate):
         with app.app_context():
@@ -159,8 +159,8 @@ class TestApplicationModel:
         with app.app_context():
             sample_application.advance_stage("reviewed")
             history = sample_application.stage_history_list
-            stages = [h["stage"] for h in history]
-            assert "reviewed" in stages
+            assert history[-1]["from"] == "applied"
+            assert history[-1]["to"] == "reviewed"
 
     def test_multiple_stage_advances(self, db, app, sample_application):
         with app.app_context():
