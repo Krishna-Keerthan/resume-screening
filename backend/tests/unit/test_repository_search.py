@@ -61,3 +61,57 @@ class TestCandidateSearch:
         make_candidate(full_name="Near", location="100% Remote")
         make_candidate(full_name="Far", location="1000 Oaks")
         assert self._names(location="100%") == {"Near"}
+
+
+def _recruiter(full_name, company_name):
+    import uuid
+    from app.models.recruiter import Recruiter
+    r = Recruiter(full_name=full_name, company_name=company_name,
+                  email=f"r+{uuid.uuid4().hex[:8]}@example.com")
+    r.save()
+    return r
+
+
+class TestRecruiterSearch:
+    def _names(self, **filters):
+        from app.repositories import RecruiterRepository
+        items, _ = RecruiterRepository().list_active(**filters)
+        return {r.full_name for r in items}
+
+    def test_search_is_case_insensitive(self, db):
+        _recruiter("Grace Hopper", "Navy")
+        assert self._names(search="hopper") == {"Grace Hopper"}
+
+    def test_search_underscore_is_literal(self, db):
+        _recruiter("Lit", "A_B Labs")
+        _recruiter("Wild", "AxB Labs")
+        assert self._names(search="A_B") == {"Lit"}
+
+    def test_company_filter_percent_is_literal(self, db):
+        _recruiter("Lit", "100% Hiring")
+        _recruiter("Wild", "1000 Hiring")
+        assert self._names(company_name="100%") == {"Lit"}
+
+
+class TestFindDuplicates:
+    def _titles(self, recruiter_id, title, company):
+        from app.repositories import JobRepository
+        return {j.title for j in JobRepository().find_duplicates(title, company, recruiter_id)}
+
+    def test_title_match_is_case_insensitive_substring(self, db, sample_recruiter):
+        _job(sample_recruiter.id, "Senior Python Developer")
+        assert self._titles(sample_recruiter.id, "python developer", "techcorp pvt ltd") == {
+            "Senior Python Developer"
+        }
+
+    def test_title_percent_is_literal(self, db, sample_recruiter):
+        _job(sample_recruiter.id, "100% Remote Engineer")
+        _job(sample_recruiter.id, "1000 Hours Engineer")
+        assert self._titles(sample_recruiter.id, "100%", "TechCorp Pvt Ltd") == {
+            "100% Remote Engineer"
+        }
+
+    def test_company_must_match_exactly_without_wildcards(self, db, sample_recruiter):
+        _job(sample_recruiter.id, "Engineer")
+        assert self._titles(sample_recruiter.id, "Engineer", "TechCorp_Pvt Ltd") == set()
+        assert self._titles(sample_recruiter.id, "Engineer", "TechCorp") == set()

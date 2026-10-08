@@ -39,16 +39,18 @@ class RecruiterRepository(BaseRepository[Recruiter]):
         query = self.base_query().filter(Recruiter.is_active == True)  # noqa: E712
 
         if search:
-            pattern = f"%{search.strip()}%"
+            term = search.strip()
             query = query.filter(
                 or_(
-                    Recruiter.full_name.ilike(pattern),
-                    Recruiter.company_name.ilike(pattern),
-                    Recruiter.email.ilike(pattern),
+                    Recruiter.full_name.icontains(term, autoescape=True),
+                    Recruiter.company_name.icontains(term, autoescape=True),
+                    Recruiter.email.icontains(term, autoescape=True),
                 )
             )
         if company_name:
-            query = query.filter(Recruiter.company_name.ilike(f"%{company_name.strip()}%"))
+            query = query.filter(
+                Recruiter.company_name.icontains(company_name.strip(), autoescape=True)
+            )
 
         total = query.count()
         items = (

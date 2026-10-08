@@ -10,7 +10,7 @@ from app.core.database import db
 from app.models.enums import JobStatus
 from app.models.job import Job
 from app.repositories.base import BaseRepository
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 logger = logging.getLogger(__name__)
 
 
@@ -153,13 +153,12 @@ class JobRepository(BaseRepository[Job]):
 
         Checks for active jobs with similar title + same company + same recruiter.
         """
-        pattern = f"%{title.strip()}%"
         return (
             db.session.query(Job)
             .filter(
                 Job.recruiter_id == recruiter_id,
-                Job.company.ilike(company.strip()),
-                Job.title.ilike(pattern),
+                func.lower(Job.company) == company.strip().lower(),
+                Job.title.icontains(title.strip(), autoescape=True),
                 Job.status.in_([JobStatus.ACTIVE.value, JobStatus.PAUSED.value]),
                 Job.is_deleted == False,  # noqa: E712
             )
