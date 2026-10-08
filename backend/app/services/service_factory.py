@@ -139,7 +139,12 @@ class ServiceFactory:
             section_quality_scorer=section_quality_scorer,
             explainability_engine=explainability_engine,
             ats_score_repo=repos["ats_score"],
-            weights=cfg("ATS_SCORE_WEIGHTS", None),
+            weights={
+                "semantic":   cfg("WEIGHT_SEMANTIC"),
+                "keyword":    cfg("WEIGHT_KEYWORD"),
+                "experience": cfg("WEIGHT_EXPERIENCE"),
+                "section":    cfg("WEIGHT_SECTION_QUALITY"),
+            },
             threshold_excellent=cfg("ATS_SCORE_THRESHOLD_EXCELLENT", 0.80),
             threshold_good=cfg("ATS_SCORE_THRESHOLD_GOOD",      0.65),
             threshold_fair=cfg("ATS_SCORE_THRESHOLD_FAIR",      0.50),
@@ -207,34 +212,21 @@ class ServiceFactory:
 
 
 def _build_repos(db_session=None) -> dict:
-    """
-    Build repository instances.
-
-    Falls back to MagicMock repos in unit test environments where
-    ORM models are not available.
-    """
-    try:
-        from app.repositories import (
-            CandidateRepository,
-            RecruiterRepository,
-            JobRepository,
-            ResumeRepository,
-            ApplicationRepository,
-            AtsScoreRepository,
-        )
-        kwargs = {"session": db_session} if db_session else {}
-        return {
-            "candidate":   CandidateRepository(**kwargs),
-            "recruiter":   RecruiterRepository(**kwargs),
-            "job":         JobRepository(**kwargs),
-            "resume":      ResumeRepository(**kwargs),
-            "application": ApplicationRepository(**kwargs),
-            "ats_score":   AtsScoreRepository(**kwargs),
-        }
-    except Exception as exc:
-        logger.warning(
-            "Could not import repositories (%s) — using mock repos.", exc
-        )
-        from unittest.mock import MagicMock
-        return {k: MagicMock() for k in
-                ("candidate", "recruiter", "job", "resume", "application", "ats_score")}
+    """Build repository instances."""
+    from app.repositories import (
+        CandidateRepository,
+        RecruiterRepository,
+        JobRepository,
+        ResumeRepository,
+        ApplicationRepository,
+        AtsScoreRepository,
+    )
+    kwargs = {"session": db_session} if db_session else {}
+    return {
+        "candidate":   CandidateRepository(**kwargs),
+        "recruiter":   RecruiterRepository(**kwargs),
+        "job":         JobRepository(**kwargs),
+        "resume":      ResumeRepository(**kwargs),
+        "application": ApplicationRepository(**kwargs),
+        "ats_score":   AtsScoreRepository(**kwargs),
+    }
