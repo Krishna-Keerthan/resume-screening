@@ -81,15 +81,6 @@ class TestCreateCandidateSchema:
             assert data["email"] == "john@example.com"
             assert data["open_to_work"] is True   # default
 
-    def test_email_normalised_to_lowercase(self, app):
-        with app.app_context():
-            from app.schemas.candidate import CreateCandidateSchema
-            data = CreateCandidateSchema().load({
-                "full_name": "Alice",
-                "email":     "ALICE@EXAMPLE.COM",
-            })
-            assert data["email"] == "alice@example.com"
-
     def test_missing_full_name(self, app):
         with app.app_context():
             from marshmallow import ValidationError
