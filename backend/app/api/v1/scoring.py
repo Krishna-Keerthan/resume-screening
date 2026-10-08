@@ -3,19 +3,6 @@ app/api/v1/scoring.py
 
 Scoring resource — ATS matching, ranking, recommendations, and skill gap analysis.
 
-FIXES APPLIED:
-  SC-01 — match_resume_to_job() passed wrong kwargs to ats_scorer.score_raw():
-           `job_nice_to_have=` and `required_years=` did not match the actual
-           parameter names. Fixed to the correct names used in AtsScorerService.
-
-  SC-02 — rank_candidates() called svcs.candidate_ranking.rank_for_job(job=<ORM>)
-           passing the full ORM object where the service expected `job_id=<str>`.
-           Fixed to pass `job_id=job.id`.
-
-  SC-03 — list_scores() called repo.list_filtered() which did not exist on
-           AtsScoreRepository. Fixed by adding list_filtered() to the
-           repository (see app/repositories/ats_score.py).
-
 Routes:
   POST   /scores/match              — score a resume×job pair (persist or preview)
   POST   /scores/rank-candidates    — rank all applicants for a job
@@ -87,11 +74,6 @@ def match_resume_to_job():
         if save_result:
             result = svcs.ats_scorer.score_resume_job(resume=resume, job=job)
         else:
-            # FIX SC-01: original passed `job_nice_to_have=` and `required_years=`
-            # which did not match the actual AtsScorerService.score_raw() parameter
-            # names. Corrected to `job_nice_to_have_skills=` and
-            # `job_required_years=` (verify against your service signature and
-            # adjust if different — this fix targets the kwarg name mismatch).
             result_dict = svcs.ats_scorer.score_raw(
                 resume_text=getattr(resume, "raw_text", "") or "",
                 resume_skills=getattr(resume, "skills_list", []) or [],
@@ -101,8 +83,8 @@ def match_resume_to_job():
                 job_title=getattr(job, "title", ""),
                 job_description=getattr(job, "description", ""),
                 job_required_skills=getattr(job, "required_skills_list", []) or [],
-                job_nice_to_have_skills=getattr(job, "nice_to_have_skills_list", []) or [],  # FIX SC-01
-                job_required_years=getattr(job, "experience_years", 0.0) or 0.0,             # FIX SC-01
+                job_nice_to_have_skills=getattr(job, "nice_to_have_skills_list", []) or [],
+                job_experience_years=getattr(job, "experience_years", 0.0) or 0.0,
             )
             return success(
                 data={"resume_id": resume_id, "job_id": job_id, "saved": False, **result_dict},
@@ -163,10 +145,8 @@ def rank_candidates():
 
         svcs = get_services()
 
-        # FIX SC-02: original passed `job=job` (ORM object) but
-        # CandidateRankingService.rank_for_job() expects `job_id=<str>`.
         result = svcs.candidate_ranking.rank_for_job(
-            job_id=job.id,          # FIX SC-02: was `job=job`
+            job_id=job.id,
             page=1,
             per_page=data["top_n"],
             min_score=data["min_score"],
@@ -347,8 +327,6 @@ def list_scores():
     GET /api/v1/scores/
 
     Query params: page, limit, resume_id, job_id, min_score, max_score, score_label
-
-    FIX SC-03: list_filtered() now exists on AtsScoreRepository (see repository).
     """
     params, err = parse_query(AtsScoreQuerySchema)
     if err:

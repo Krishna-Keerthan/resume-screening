@@ -6,7 +6,7 @@ Integration tests for /api/v1/scores/* endpoints.
 """
 import json
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, create_autospec
 
 BASE = "/api/v1/scores"
 
@@ -56,6 +56,25 @@ class TestMatchEndpoint:
         body = r.get_json()
         assert body["success"] is True
         assert body["data"]["saved"] is False
+
+    def test_preview_calls_score_raw_with_its_real_signature(
+        self, client, db, sample_resume, sample_job, mock_services,
+    ):
+        from app.services.ats_scorer import AtsScorerService
+        mock_services.ats_scorer = create_autospec(AtsScorerService, instance=True)
+        mock_services.ats_scorer.score_raw.return_value = _raw_score()
+        r = client.post(
+            f"{BASE}/match",
+            data=json.dumps({
+                "resume_id":   sample_resume.id,
+                "job_id":      sample_job.id,
+                "save_result": False,
+            }),
+            content_type="application/json",
+        )
+        assert r.status_code == 200
+        kwargs = mock_services.ats_scorer.score_raw.call_args.kwargs
+        assert kwargs["job_experience_years"] == sample_job.experience_years
 
     def test_persist_mode_201(self, client, db, sample_resume, sample_job, mock_services):
         mock_services.ats_scorer.score_resume_job.return_value = _score_result()
