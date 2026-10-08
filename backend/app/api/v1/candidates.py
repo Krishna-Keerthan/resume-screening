@@ -4,7 +4,7 @@ app/api/v1/candidates.py  (storage-agnostic revision)
 Key changes vs previous version:
   - upload_resume() now uses StorageService instead of direct os / file.save() calls.
   - File bytes are read into memory once; same bytes go to storage AND parser.
-  - validate_upload() from file_helpers is properly wired in (fixes FH-02/FH-03).
+  - validate_upload() from file_helpers checks extension, MIME type and size.
   - @require_ownership("candidate_id") decorator restored (security fix).
   - Resume.file_path stores the storage URL (Cloudinary secure_url or local path).
   - Resume.storage_key stores the deletion handle (Cloudinary public_id or local path).
@@ -270,7 +270,7 @@ def upload_resume(candidate_id: str):
     if not file or not file.filename:
         return error("Empty file uploaded.", code="EMPTY_FILE", status=400)
 
-    # ── 3. Validate extension + MIME + size (FH-02, FH-03 now actually called) ─
+    # ── 3. Validate extension + MIME + size ──────────────────────────────────
     try:
         ext = validate_upload(
             file=file,

@@ -4,28 +4,6 @@ config/settings.py
 Multi-environment configuration module.
 
 FIXES APPLIED:
-  CF-01 — get_config() previously returned the config *class* instead of an
-           *instance*. Flask's app.config.from_object() calls getattr() on the
-           object to read values. When a class is passed, class-level attributes
-           are read correctly — BUT @property descriptors (like
-           ProductionConfig.SQLALCHEMY_DATABASE_URI) are NEVER evaluated because
-           properties only execute on instances. The result was that
-           SQLALCHEMY_DATABASE_URI was always None in production, crashing
-           SQLAlchemy on startup.
-
-           Fix: return config_class() — instantiate the class.
-           ProductionConfig.__init__ enforces the SECRET_KEY guard, and the
-           @property is now evaluated correctly.
-
-  CF-02 — SQLALCHEMY_ENGINE_OPTIONS was a mutable class-level dict shared
-           across all config subclasses. Any subclass or test that mutated the
-           dict would corrupt all other subclasses. Fixed with per-instance copy
-           via dict literal (already safe for Pydantic-style classes but
-           explicitly copied now for safety).
-
-  CF-03 — Added RATE_LIMIT_* stubs so flask-limiter can be wired without
-           touching per-environment subclasses.
-
   CF-04 — Added CORS_MAX_AGE to avoid browser pre-flight overhead.
 """
 
@@ -96,9 +74,8 @@ class BaseConfig:
     SQLALCHEMY_TRACK_MODIFICATIONS: bool = False
     SQLALCHEMY_ECHO:                bool = False
 
-    # FIX CF-02: define as a property so each subclass gets its own dict copy.
-    # A mutable class-level dict is shared by reference across all subclasses —
-    # mutation in one (e.g. a test fixture) would corrupt the others.
+    # A property, so each instance gets its own dict rather than sharing one
+    # mutable class-level dict across all subclasses.
     @property
     def SQLALCHEMY_ENGINE_OPTIONS(self) -> dict:  # type: ignore[override]
         return {
@@ -149,7 +126,7 @@ class BaseConfig:
     GROQ_TEMPERATURE:     float = _float_env("GROQ_TEMPERATURE", 0.3)
     GROQ_TIMEOUT_SECONDS: int   = _int_env("GROQ_TIMEOUT_SECONDS", 30)
 
-    # ── Rate limiting (FIX CF-03) ─────────────────────────────────────────────
+    # ── Rate limiting ─────────────────────────────────────────────────────────
     # Stub values — wire into flask-limiter in create_app() when ready.
     RATE_LIMIT_DEFAULT:       str = os.getenv("RATE_LIMIT_DEFAULT",       "200 per minute")
     RATE_LIMIT_AUTH:          str = os.getenv("RATE_LIMIT_AUTH",          "20 per minute")
@@ -228,20 +205,13 @@ def get_config(env: str | None = None) -> BaseConfig:
     """
     Return an *instance* of the appropriate config class.
 
-    FIX CF-01: The original implementation returned the class itself
-    (`return config_class`). Flask's app.config.from_object() reads
-    attributes via getattr(), which works for plain class attributes but
-    NEVER evaluates @property descriptors defined on the class — those only
-    fire on instances. ProductionConfig.SQLALCHEMY_DATABASE_URI is a
-    @property, so it was silently ignored and SQLALCHEMY_DATABASE_URI was
-    always None, crashing SQLAlchemy on startup.
-
-    Fix: `return config_class()` — instantiate the class so @property
-    descriptors execute correctly.
+    An instance, not the class: app.config.from_object() only evaluates
+    @property settings (e.g. ProductionConfig.SQLALCHEMY_DATABASE_URI) on
+    instances.
     """
     resolved     = env or os.getenv("APP_ENV", "development")
     config_class = _CONFIG_REGISTRY.get(resolved)
     if config_class is None:
         valid = ", ".join(_CONFIG_REGISTRY.keys())
         raise ValueError(f"Unknown environment '{resolved}'. Valid options: {valid}")
-    return config_class()   # ← FIX CF-01: was `return config_class`
+    return config_class()

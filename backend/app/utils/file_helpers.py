@@ -3,16 +3,10 @@ app/utils/file_helpers.py
 
 File upload validation utilities.
 
-All FH-01 through FH-04 fixes from the previous version are preserved.
-
-What changed vs previous version:
-  - save_upload() is kept for local dev compatibility but is no longer
-    called from upload_resume(). The route now uses StorageService directly.
-  - validate_upload() is now the primary entry point called from the route.
-    It returns the lowercase extension string so the caller knows file type.
-  - human_readable_size() FH-01 fix (float division) is preserved.
-  - MIME cross-check FH-02 is preserved and active.
-  - Size check FH-03 is preserved and active.
+  - validate_upload() is the entry point called from the upload route. It
+    returns the lowercase extension string so the caller knows the file type.
+  - save_upload() is kept for local tooling; upload_resume() uses
+    StorageService instead.
   - ResumeUploadFailed is the single exception type callers catch.
 """
 
@@ -47,9 +41,9 @@ def validate_upload(
     Checks (in order):
       1. Filename is not empty.
       2. Extension is in the allowed set.
-      3. MIME type matches the expected type for the extension (FH-02).
-      4. File is non-empty (FH-03).
-      5. File does not exceed max_size_mb if given (FH-03).
+      3. MIME type matches the expected type for the extension.
+      4. File is non-empty.
+      5. File does not exceed max_size_mb if given.
 
     After this call the stream is rewound to position 0 — the caller
     can safely call file.read() or file.save() immediately after.
@@ -78,7 +72,7 @@ def validate_upload(
             f"Accepted types: {', '.join(sorted(allowed_extensions))}."
         )
 
-    # ── MIME type cross-check (FH-02) ─────────────────────────────────────────
+    # ── MIME type cross-check ─────────────────────────────────────────────────
     # Strip charset suffix: "application/pdf; charset=utf-8" → "application/pdf"
     content_type  = (file.content_type or "").split(";")[0].strip().lower()
     expected_mime = _ALLOWED_MIME.get(ext)
@@ -98,7 +92,7 @@ def validate_upload(
             f"Expected MIME type '{expected_mime}', got '{content_type}'."
         )
 
-    # ── File size check (FH-03) ───────────────────────────────────────────────
+    # ── File size check ───────────────────────────────────────────────────────
     # Seek to end to measure without reading the whole file into memory.
     file.stream.seek(0, 2)
     size_bytes = file.stream.tell()
@@ -127,8 +121,6 @@ def save_upload(
 
     NOTE: This function is retained for local tooling / tests.
     The upload_resume route uses StorageService.upload() instead.
-
-    FH-04: Returns (file_path, size_kb) tuple.
 
     Args:
         file:       A validated FileStorage object.
@@ -185,7 +177,6 @@ def human_readable_size(size_bytes: int) -> str:
     """
     Format a byte count as a human-readable string.
 
-    FH-01: Uses float division (/=) not integer floor division (//=).
     1500 bytes → "1.5 KB", not "1 KB".
 
     Returns: e.g. "2.3 MB", "512.0 KB", "800.0 B"
@@ -194,5 +185,5 @@ def human_readable_size(size_bytes: int) -> str:
     for unit in ("B", "KB", "MB", "GB"):
         if size < 1024.0:
             return f"{size:.1f} {unit}"
-        size /= 1024.0          # FH-01: was //= which truncated decimals
+        size /= 1024.0
     return f"{size:.1f} TB"

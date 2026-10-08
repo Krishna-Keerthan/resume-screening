@@ -10,12 +10,6 @@ IMPROVEMENTS APPLIED:
            error messages and response shapes. Centralised here as a single
            helper that raises AuthError with a consistent 403 payload.
 
-  SE-02 — decode_access_token() raised the same AuthError("INVALID_TOKEN")
-           for both expired tokens and genuinely invalid ones. Front-ends need
-           to distinguish these cases: expired → prompt re-authentication;
-           invalid → log out immediately. Added separate error codes:
-           EXPIRED_TOKEN and INVALID_TOKEN.
-
 Architecture
 ───────────
 Access token  — short-lived (15 min), sent in Authorization: Bearer <token>
@@ -79,8 +73,7 @@ class AuthError(Exception):
     """
     Raised when a token cannot be trusted.
 
-    SE-02: code is now set to EXPIRED_TOKEN or INVALID_TOKEN so callers
-    can distinguish between the two cases.
+    code is EXPIRED_TOKEN or INVALID_TOKEN so callers can tell the two apart.
     """
 
     def __init__(
@@ -148,7 +141,7 @@ def decode_access_token(token: str) -> dict[str, Any]:
     """
     Decode and validate an access token.
 
-    SE-02: Raises AuthError with code="EXPIRED_TOKEN" for expired tokens and
+    Raises AuthError with code="EXPIRED_TOKEN" for expired tokens and
     code="INVALID_TOKEN" for tokens that fail signature/structure validation.
     Front-ends should treat EXPIRED_TOKEN as a cue to refresh, and
     INVALID_TOKEN as a cue to log out immediately.
@@ -166,7 +159,6 @@ def decode_access_token(token: str) -> dict[str, Any]:
     try:
         payload = jwt.decode(token, secret, algorithms=[_ALGORITHM])
     except jwt.ExpiredSignatureError:
-        # SE-02: separate error code for expired tokens
         raise AuthError("Access token has expired.", code="EXPIRED_TOKEN", status=401)
     except jwt.InvalidTokenError as exc:
         raise AuthError(f"Invalid token: {exc}", code="INVALID_TOKEN", status=401)
@@ -185,7 +177,7 @@ def decode_refresh_token(token: str) -> dict[str, Any]:
     """
     Decode and validate a refresh token.
 
-    SE-02: Same error-code split as decode_access_token.
+    Same EXPIRED_TOKEN / INVALID_TOKEN split as decode_access_token.
     """
     secret = current_app.config["SECRET_KEY"]
     try:

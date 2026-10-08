@@ -1,15 +1,5 @@
 """
 app/repositories/ats_score.py — AtsScore-specific data access methods.
-
-FIXES APPLIED:
-  AR-01 — upsert() did not update application_id when an existing score was
-           found. If an application was linked after the initial standalone
-           score, the link was silently dropped. Fixed by adding
-           `existing.application_id = score.application_id` to the update path.
-
-  SC-03 — list_filtered() did not exist at all. The scoring API's
-           GET /scores/ endpoint called repo.list_filtered(...) which raised
-           AttributeError on every request. Added the full implementation.
 """
 
 import logging
@@ -45,10 +35,8 @@ class AtsScoreRepository(BaseRepository[AtsScore]):
         """
         Insert a new score or update an existing one for the same resume×job pair.
 
-        FIX AR-01: The original implementation omitted application_id from the
-        field updates. When score_resume_job() was called at apply-time (with
-        an application_id), the link between the AtsScore and the Application
-        was silently dropped if a standalone score had been computed earlier.
+        An update keeps the existing application link unless the new score
+        carries one.
         """
         existing = self.get_by_resume_and_job(score.resume_id, score.job_id)
         if existing:
@@ -65,7 +53,6 @@ class AtsScoreRepository(BaseRepository[AtsScore]):
             existing.improvement_tips      = score.improvement_tips
             existing.summary_text          = score.summary_text
             existing.weights_used          = score.weights_used
-            # FIX AR-01: was missing — application link was silently lost on re-score
             if score.application_id is not None:
                 existing.application_id = score.application_id
             db.session.add(existing)
@@ -175,10 +162,6 @@ class AtsScoreRepository(BaseRepository[AtsScore]):
     ) -> tuple[list[AtsScore], int]:
         """
         Paginated, multi-filter query for stored ATS scores.
-
-        FIX SC-03: This method was entirely missing. The GET /scores/ endpoint
-        called repo.list_filtered(...) on every request, raising AttributeError
-        every time. This is the full implementation.
 
         Args:
             page:        1-based page number.

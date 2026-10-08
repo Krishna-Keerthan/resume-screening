@@ -3,19 +3,6 @@ app/api/v1/applications.py
 
 Applications resource — candidate applies to job, recruiters advance stages.
 
-FIXES APPLIED:
-  AP-01 — update_application_stage() set the stage via direct attribute
-           assignment (`application.stage = new_stage_enum`) instead of
-           calling `application.advance_stage(new_stage, actor_id)`.
-
-           Direct assignment:
-             • Skips the STAGE_TRANSITIONS guard — any stage jump is accepted,
-               even invalid ones (e.g. "applied" → "hired" skipping screening).
-             • Never appends to stage_history, so the audit trail is empty.
-
-           Fix: replace direct assignment with application.advance_stage().
-           ValueError from invalid transitions is caught and returned as 422.
-
 Routes:
   GET    /applications/              — list (filter by job_id, candidate_id, stage)
   POST   /applications/              — submit application (candidate → job)
@@ -274,15 +261,9 @@ def update_application_stage(application_id: str):
     Body: { stage, recruiter_notes?, rejection_reason?, actor_id? }
     Valid stages: applied → screening → interview → offer → hired | rejected
 
-    FIX AP-01: The original implementation set the stage via direct attribute
-    assignment (`application.stage = new_stage_enum`). This bypassed
-    Application.advance_stage() completely, which means:
-      1. STAGE_TRANSITIONS guard was never checked — any stage jump was
-         silently accepted (e.g. "applied" → "hired").
-      2. stage_history was never updated — the audit trail was always empty.
-
-    Fixed: call application.advance_stage(new_stage, actor_id) instead.
-    ValueError from invalid transitions is caught and returned as 422.
+    Goes through Application.advance_stage(), which enforces
+    STAGE_TRANSITIONS and appends to stage_history; an invalid transition
+    returns 422.
     """
     data, err = parse_body(UpdateApplicationStageSchema)
     if err:
@@ -323,8 +304,6 @@ def update_application_stage(application_id: str):
                 status=400,
             )
 
-        # FIX AP-01: use advance_stage() instead of direct attribute assignment.
-        # advance_stage() validates the transition graph and appends to stage_history.
         actor_id = data.get("actor_id") or getattr(
             getattr(g, "current_user", None), "id", None
         )

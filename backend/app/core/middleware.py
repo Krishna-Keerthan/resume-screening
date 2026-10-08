@@ -4,17 +4,6 @@ app/core/middleware.py
 Flask middleware hooks registered in create_app().
 
 FIXES APPLIED:
-  MW-01 — flask_jwt_extended was imported but not in requirements. The
-          before_request hook used verify_jwt_in_request() / get_jwt_identity()
-          from flask_jwt_extended which was never installed. The entire auth
-          context block raised ImportError on every request, setting
-          g.current_user = None always.
-
-          Fix: the platform uses PyJWT (app.core.security), not flask_jwt_extended.
-          The before_request hook now decodes the Bearer token using
-          decode_access_token() from security.py, avoiding the missing
-          dependency entirely.
-
   MW-02 — Auto-commit fired on ALL 2xx status codes, including 201 Created
           responses that might be partially successful. More importantly, the
           auto-commit after_request hook should NOT commit on 204 No Content
@@ -66,8 +55,6 @@ def register_middleware(app: Flask) -> None:
         set_request_id(rid)
 
         # ── Auth context ──────────────────────────────────────────────────────
-        # FIX MW-01: replaced flask_jwt_extended (not installed) with PyJWT
-        # via app.core.security.decode_access_token().
         g.current_user = None
         g.jwt_user_id  = None
         g.jwt_role     = None
