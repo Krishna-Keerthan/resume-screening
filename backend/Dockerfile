@@ -16,13 +16,10 @@ RUN apt-get update && apt-get install -y \
 
 COPY requirements.txt .
 
-# Install CPU-only torch first (saves ~500MB)
+# The PyTorch CPU index provides torch==2.3.0+cpu (no CUDA libraries)
 RUN pip install --no-cache-dir --timeout=300 \
-    --index-url https://download.pytorch.org/whl/cpu \
-    torch==2.3.0
-
-# Install everything else
-RUN pip install --no-cache-dir --timeout=300 -r requirements.txt
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    -r requirements.txt
 
 COPY . .
 

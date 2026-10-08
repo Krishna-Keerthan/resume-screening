@@ -1,0 +1,39 @@
+# Direct dependencies only. Regenerate requirements.txt with:
+#   pip-compile --output-file=requirements.txt requirements.in
+# (run on Linux / python:3.11-slim — the deploy platform)
+
+# CPU-only PyTorch wheels (avoids the multi-GB CUDA build)
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# Web framework / API
+Flask==3.0.3
+Werkzeug==3.0.3
+Flask-Cors==4.0.1
+marshmallow==3.21.3
+PyJWT==2.7.0
+python-dotenv==1.0.1
+gunicorn==21.2.0
+
+# Database
+Flask-SQLAlchemy==3.1.1
+SQLAlchemy==2.0.31
+psycopg2-binary==2.9.11
+alembic==1.13.2
+
+# Résumé parsing
+pdfplumber==0.11.1
+PyMuPDF==1.24.3
+python-docx==1.1.2
+
+# Scoring / ML
+numpy==1.26.4
+torch==2.3.0
+sentence-transformers==5.3.0
+rank-bm25==0.2.2
+
+# LLM
+groq==1.0.0
+
+# Seed data and tests
+Faker==40.12.0
+pytest==9.0.2
