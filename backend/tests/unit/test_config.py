@@ -72,3 +72,39 @@ def test_base_config_has_required_keys():
     ]
     for key in required:
         assert hasattr(BaseConfig, key), f"BaseConfig missing key: {key}"
+
+def test_storage_settings_reach_flask_config():
+    # Settings are read from the environment at import time, so load them in a
+    # fresh interpreter, the same way create_app() does.
+    import json
+    import os
+    import subprocess
+    import sys
+
+    env = {
+        **os.environ,
+        "STORAGE_PROVIDER":      "cloudinary",
+        "CLOUDINARY_CLOUD_NAME": "demo-cloud",
+        "CLOUDINARY_API_KEY":    "key-123",
+        "CLOUDINARY_API_SECRET": "secret-456",
+    }
+    script = (
+        "import json\n"
+        "from flask import Flask\n"
+        "from config import get_config\n"
+        "app = Flask('probe')\n"
+        "app.config.from_object(get_config('development'))\n"
+        "keys = ['STORAGE_PROVIDER', 'CLOUDINARY_CLOUD_NAME',\n"
+        "        'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET']\n"
+        "print(json.dumps({k: app.config.get(k) for k in keys}))\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", script], env=env, capture_output=True, text=True,
+        check=True, cwd=os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+    )
+    assert json.loads(out.stdout.strip().splitlines()[-1]) == {
+        "STORAGE_PROVIDER":      "cloudinary",
+        "CLOUDINARY_CLOUD_NAME": "demo-cloud",
+        "CLOUDINARY_API_KEY":    "key-123",
+        "CLOUDINARY_API_SECRET": "secret-456",
+    }

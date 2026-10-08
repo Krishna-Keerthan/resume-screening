@@ -95,6 +95,13 @@ class BaseConfig:
     MAX_UPLOAD_MB:      int = _int_env("MAX_UPLOAD_MB", 10)
     ALLOWED_EXTENSIONS: set = set(_list_env("ALLOWED_EXTENSIONS", "pdf,docx"))
 
+    # ── File storage (StorageService.from_config) ─────────────────────────────
+    STORAGE_PROVIDER:      str = os.getenv("STORAGE_PROVIDER", "local")
+    CLOUDINARY_CLOUD_NAME: str = os.getenv("CLOUDINARY_CLOUD_NAME", "")
+    CLOUDINARY_API_KEY:    str = os.getenv("CLOUDINARY_API_KEY", "")
+    CLOUDINARY_API_SECRET: str = os.getenv("CLOUDINARY_API_SECRET", "")
+    CLOUDINARY_FOLDER:     str = os.getenv("CLOUDINARY_FOLDER", "resumes")
+
     # ── Logging ───────────────────────────────────────────────────────────────
     LOG_LEVEL:  str = os.getenv("LOG_LEVEL", "INFO")
     LOG_FORMAT: str = os.getenv("LOG_FORMAT", "json")
