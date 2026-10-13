@@ -17,6 +17,7 @@ from app.core.responses import created, error, success
 from app.core.security import (
     account_is_usable,
     create_tokens,
+    current_account,
     decode_refresh_token,
     get_current_user,
     hash_password,
@@ -592,7 +593,7 @@ def me():
     _, role = get_current_user()
     serialize = serialize_candidate if role == "candidate" else serialize_recruiter
     return success(
-        data={"role": role, "user": serialize(g.current_user)},
+        data={"role": role, "user": serialize(current_account())},
         message="Profile retrieved.",
     )
 

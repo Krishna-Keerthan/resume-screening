@@ -203,12 +203,11 @@ def decode_refresh_token(token: str) -> dict[str, Any]:
 
 def get_current_user() -> Tuple[str, str] | Tuple[None, None]:
     """
-    Return (user_id, role) from the current request context.
+    Return (user_id, role) of the account the request's access token names.
 
-    Returns (None, None) when no authenticated user is present.
-    Requires middleware to have called verify_jwt_in_request() first.
+    Returns (None, None) when there is no valid token or the account is dead.
     """
-    user = getattr(g, "current_user", None)
+    user = current_account()
     if user is None:
         return None, None
     return str(user.id), getattr(user, "role", None) or _role_from_model(user)
@@ -220,6 +219,20 @@ def _role_from_model(user) -> str:
     if "recruiter" in class_name:
         return "recruiter"
     return "candidate"
+
+
+def current_account():
+    """
+    The usable account named by the request's access token, or None.
+
+    Loaded at most once per request; the middleware resets the cache and
+    records the token's identity in g.jwt_user_id / g.jwt_role.
+    """
+    if "_account" not in g:
+        g._account = _load_account(g.get("jwt_user_id"), g.get("jwt_role"))
+        if not account_is_usable(g._account):
+            g._account = None
+    return g._account
 
 
 def account_is_usable(user) -> bool:
@@ -274,8 +287,10 @@ def require_auth(*roles: str) -> Callable:
             user_id = payload.get("sub")
             role    = payload.get("role")
 
-            user = _load_account(user_id, role)
-            if not account_is_usable(user):
+            g.jwt_user_id = user_id
+            g.jwt_role    = role
+            g.pop("_account", None)
+            if current_account() is None:
                 return err_response(
                     "Account is no longer active.",
                     code="INVALID_TOKEN",
@@ -289,11 +304,7 @@ def require_auth(*roles: str) -> Callable:
                     status=403,
                 )
 
-            # Store on g for downstream use
-            g.current_user = user
-            g.jwt_user_id = user_id
-            g.jwt_role    = role
-            g.jwt_jti     = payload.get("jti")
+            g.jwt_jti = payload.get("jti")
 
             return fn(*args, **kwargs)
         return wrapper

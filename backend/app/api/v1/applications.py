@@ -271,8 +271,8 @@ def update_application_stage(application_id: str):
 
     try:
         from app.repositories import ApplicationRepository
+        from app.core.security import current_account
         from app.models.enums import ApplicationStage
-        from flask import g
 
         repo        = ApplicationRepository()
         application = repo.get_by_id(application_id)
@@ -305,7 +305,7 @@ def update_application_stage(application_id: str):
             )
 
         actor_id = data.get("actor_id") or getattr(
-            getattr(g, "current_user", None), "id", None
+            current_account(), "id", None
         )
         try:
             application.advance_stage(new_stage, actor_id=actor_id)

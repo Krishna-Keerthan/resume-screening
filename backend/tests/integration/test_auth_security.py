@@ -211,3 +211,24 @@ def test_recruiter_cannot_read_a_deleted_candidate(
     r = client.get(url, headers=headers_for(recruiter_a))
     assert r.status_code == 404
     assert r.get_json()["error"]["error_code"] == "CANDIDATE_NOT_FOUND"
+
+
+# ─── One account load per request ─────────────────────────────────────────────
+
+@pytest.mark.parametrize("account", ["candidate", "recruiter"], indirect=True)
+def test_a_request_loads_the_account_once(client, account, headers_for):
+    from unittest.mock import patch
+
+    from app.repositories.candidate import CandidateRepository
+    from app.repositories.recruiter import RecruiterRepository
+
+    user, role = account
+    headers = headers_for(user)
+    repo_cls = CandidateRepository if role == "candidate" else RecruiterRepository
+    original = repo_cls.get_by_id
+
+    with patch.object(repo_cls, "get_by_id", autospec=True, side_effect=original) as spy:
+        r = client.get(f"{BASE}/me", headers=headers)
+
+    assert r.status_code == 200
+    assert spy.call_count == 1

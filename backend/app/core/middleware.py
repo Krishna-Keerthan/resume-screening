@@ -7,7 +7,7 @@ Responsibilities:
   1. Request ID — correlation ID on every request.
   2. Request logging — METHOD, path, IP at start.
   3. Response logging — status code + elapsed time.
-  4. Auth context — populate g.current_user from Bearer token.
+  4. Auth context — record the Bearer token's identity in g.jwt_user_id / g.jwt_role.
   5. Auto-commit — commit the session on 200/201/204 responses, roll back
      on everything else (see _after_request).
   6. Error rollback — rollback on any non-2xx or unhandled exception.
@@ -41,7 +41,7 @@ def register_middleware(app: Flask) -> None:
         set_request_id(rid)
 
         # ── Auth context ──────────────────────────────────────────────────────
-        g.current_user = None
+        g.pop("_account", None)
         g.jwt_user_id  = None
         g.jwt_role     = None
 
@@ -57,17 +57,10 @@ def register_middleware(app: Flask) -> None:
                 g.jwt_user_id = user_id
                 g.jwt_role    = role
 
-                if role == "recruiter":
-                    from app.repositories.recruiter import RecruiterRepository
-                    g.current_user = RecruiterRepository().get_by_id(user_id)
-                elif role == "candidate":
-                    from app.repositories.candidate import CandidateRepository
-                    g.current_user = CandidateRepository().get_by_id(user_id)
-
             except Exception:
                 # Silently ignore auth errors here — routes protected by
                 # @require_auth will return 401. Public routes are unaffected.
-                g.current_user = None
+                pass
 
         logger.debug(
             "Request started",
