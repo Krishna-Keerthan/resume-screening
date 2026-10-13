@@ -4,7 +4,6 @@ import {
   Application, AtsScore, ScoreMatchResult, RankedCandidate, JobRecommendation,
   JobEnhancement, RecruiterDashboard, PipelineData,
   CreateCandidateForm, CreateRecruiterForm, CreateJobForm, StageUpdateForm,
-  SkillGapSingle, 
 } from "@/lib/types";
 
 // ─── Auth response shape ───────────────────────────────────────────────────────
@@ -97,14 +96,11 @@ export const queryKeys = {
   health:                    () => ["health"] as const,
   healthServices:            () => ["health", "services"] as const,
   authMe:                    (role: string, userId: string) => ["auth", "me", role, userId] as const,
-  candidates:                (p?: number, l?: number, q?: string) => ["candidates", p, l, q] as const,
   candidate:                 (id: string) => ["candidate", id] as const,
   candidateResumes:          (id: string) => ["candidate", id, "resumes"] as const,
-  candidateRecommendations:  (id: string) => ["candidate", id, "recommendations"] as const,
   candidateSkillGaps:    (id: string) => ["candidate", id, "skill-gaps"] as const,
   candidateWinRate:      (id: string) => ["candidate", id, "win-rate"] as const,
   applicationAiSummary:  (id: string) => ["application", id, "ai-summary"] as const,
-  recruiters:                (p?: number, l?: number, q?: string) => ["recruiters", p, l, q] as const,
   recruiter:                 (id: string) => ["recruiter", id] as const,
   recruiterJobs:             (id: string, status?: string) => ["recruiter", id, "jobs", status] as const,
   recruiterAnalytics:        (id: string) => ["recruiter", id, "analytics"] as const,
@@ -372,8 +368,6 @@ export const api = {
     }>("/health/services"),
 
   // ── Candidates ────────────────────────────────────────────────────────────
-  listCandidates: (page = 1, limit = 20, params?: Record<string, unknown>) =>
-    get<Candidate[]>("/candidates", { page, limit, ...params }),
   getCandidate: (id: string) => get<Candidate>(`/candidates/${id}`),
   // NOTE: createCandidate is removed — use api.authRegisterCandidate instead
   updateCandidate: (id: string, body: Partial<CreateCandidateForm>) =>
@@ -391,10 +385,6 @@ export const api = {
     );
     return res.data;
   },
-  getCandidateRecommendations: (id: string, params?: Record<string, unknown>) =>
-    post<{ total: number; recommendations: JobRecommendation[] }>(
-      `/candidates/${id}/recommendations`, params
-    ),
 
   getCandidateSkillGaps: (candidateId: string) =>
   get<{
@@ -414,8 +404,6 @@ export const api = {
     }>(`/candidates/${candidateId}/win-rate-insights`),
 
   // ── Recruiters ────────────────────────────────────────────────────────────
-  listRecruiters: (page = 1, limit = 20, params?: Record<string, unknown>) =>
-    get<Recruiter[]>("/recruiters", { page, limit, ...params }),
   getRecruiter: (id: string) => get<Recruiter>(`/recruiters/${id}`),
   // NOTE: createRecruiter is removed — use api.authRegisterRecruiter instead
   updateRecruiter: (id: string, body: Partial<CreateRecruiterForm>) =>
@@ -425,8 +413,6 @@ export const api = {
     get<Job[]>(`/recruiters/${id}/jobs`, params),
   getRecruiterAnalytics: (id: string) =>
     get<RecruiterDashboard>(`/recruiters/${id}/analytics`),
-  getRecruiterPipeline: (id: string) =>
-    get<PipelineData>(`/recruiters/${id}/pipeline`),
 
   // ── Jobs ──────────────────────────────────────────────────────────────────
   listJobs: (page = 1, limit = 20, params?: Record<string, unknown>) =>
@@ -504,24 +490,12 @@ export const api = {
     post<ScoreMatchResult>("/scores/match", {
       resume_id: resumeId, job_id: jobId, save_result: saveResult,
     }),
-  rankCandidates: (jobId: string, params?: Record<string, unknown>) =>
-    post<{
-      job_id:      string;
-      total:       number;
-      score_stats: Record<string, number>;
-      candidates:  RankedCandidate[];
-    }>("/scores/rank-candidates", { job_id: jobId, ...params }),
   jobRecommendations: (resumeId: string, params?: Record<string, unknown>) =>
     post<{
       resume_id:       string;
       total:           number;
       recommendations: JobRecommendation[];
     }>("/scores/job-recommendations", { resume_id: resumeId, ...params }),
-  skillGap: (resumeId: string, jobId?: string) =>
-    post<SkillGapSingle>("/scores/skill-gap", {
-      resume_id: resumeId, ...(jobId ? { job_id: jobId } : {}),
-    }),
-  listScores: (params?: Record<string, unknown>) => get<AtsScore[]>("/scores", params),
   getScore: (id: string) => get<AtsScore>(`/scores/${id}`),
 
   // ── Analytics ─────────────────────────────────────────────────────────────
