@@ -62,6 +62,7 @@ class TestGetResume:
         assert data["candidate_id"] == candidate_a.id
         assert data["parse_status"] == "success"
         assert "Python" in data["skills"]
+        assert data["total_experience_years"] == resume_a.total_experience_years
 
     def test_access_rules_for_a_recruiter_with_an_application(
         self, check_access, application_a, resume_a, recruiter_a, recruiter_b

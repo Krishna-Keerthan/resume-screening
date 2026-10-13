@@ -126,6 +126,25 @@ class TestRegisterCandidate:
         r = client.post(f"{BASE}/register/candidate", json={"full_name": "X", "password": "P@ss1234"})
         assert r.status_code == 400
 
+    def test_missing_full_name_400(self, client, db):
+        p = _cand()
+        del p["full_name"]
+        assert client.post(f"{BASE}/register/candidate", json=p).status_code == 400
+
+    def test_invalid_email_400(self, client, db):
+        r = client.post(f"{BASE}/register/candidate", json=_cand(email="not-valid"))
+        assert r.status_code == 400
+
+    def test_profile_fields_are_saved(self, client, db):
+        user = _register_candidate(
+            client, location="Pune", preferred_roles=["Data Engineer", "ML Ops"]
+        ).get_json()["data"]["user"]
+        assert user["location"] == "Pune"
+        assert user["preferred_roles"] == ["Data Engineer", "ML Ops"]
+
+    def test_open_to_work_defaults_to_true(self, client, db):
+        assert _register_candidate(client).get_json()["data"]["user"]["open_to_work"] is True
+
     def test_password_not_in_response(self, client, db):
         body = _register_candidate(client).get_json()
         # password_hash must never appear in any response
@@ -158,6 +177,27 @@ class TestRegisterRecruiter:
         _register_recruiter(client, **p)
         r = client.post(f"{BASE}/register/recruiter", json=p)
         assert r.status_code == 409
+
+    def test_missing_email_400(self, client, db):
+        p = _rec()
+        del p["email"]
+        assert client.post(f"{BASE}/register/recruiter", json=p).status_code == 400
+
+    def test_missing_full_name_400(self, client, db):
+        p = _rec()
+        del p["full_name"]
+        assert client.post(f"{BASE}/register/recruiter", json=p).status_code == 400
+
+    def test_profile_fields_are_saved(self, client, db):
+        user = _register_recruiter(client, industry="Fintech").get_json()["data"]["user"]
+        assert user["company_name"] == "TestCo"
+        assert user["industry"] == "Fintech"
+
+    def test_duplicate_email_error_code(self, client, db):
+        p = _rec()
+        _register_recruiter(client, **p)
+        body = client.post(f"{BASE}/register/recruiter", json=p).get_json()
+        assert body["error"]["error_code"] == "RECRUITER_EMAIL_CONFLICT"
 
     def test_missing_company_name_400(self, client, db):
         p = _rec()
