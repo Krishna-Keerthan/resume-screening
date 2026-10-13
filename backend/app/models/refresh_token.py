@@ -33,10 +33,10 @@ import hashlib
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Index, String, update
+from sqlalchemy import Boolean, DateTime, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.database import BaseModel, db
+from app.core.database import BaseModel
 
 
 class RefreshToken(BaseModel):
@@ -103,7 +103,7 @@ class RefreshToken(BaseModel):
         Index("ix_refresh_tokens_expires_revoked", "expires_at", "revoked"),
     )
 
-    # ── Class-level helpers ───────────────────────────────────────────────────
+    # ── Helpers (no session access: queries live in RefreshTokenRepository) ───
 
     @classmethod
     def hash_token(cls, raw_token: str) -> str:
@@ -133,55 +133,10 @@ class RefreshToken(BaseModel):
         rt.revoked    = False
         return rt
 
-    @classmethod
-    def get_by_jti(cls, jti: str) -> "RefreshToken | None":
-        """Fetch by JTI — used during token refresh and logout."""
-        return db.session.query(cls).filter_by(jti=jti).first()
-
-    @classmethod
-    def get_by_hash(cls, raw_token: str) -> "RefreshToken | None":
-        """Fetch by raw token — computes hash internally."""
-        token_hash = cls.hash_token(raw_token)
-        return db.session.query(cls).filter_by(token_hash=token_hash).first()
-
-    @classmethod
-    def revoke_all_for_user(cls, user_id: str) -> int:
-        """
-        Revoke every active refresh token for a user.
-        Returns the number of rows updated.
-        """
-        now = datetime.now(timezone.utc)
-        updated = (
-            db.session.query(cls)
-            .filter_by(user_id=user_id, revoked=False)
-            .all()
-        )
-        for rt in updated:
-            rt.revoked    = True
-            rt.revoked_at = now
-        db.session.flush()
-        return len(updated)
-
-    @classmethod
-    def claim(cls, jti: str) -> bool:
-        """
-        Atomically revoke the token with this JTI if it is still unrevoked.
-
-        A single conditional UPDATE, so of any number of concurrent callers
-        exactly one gets True. False means the token was already revoked.
-        """
-        result = db.session.execute(
-            update(cls)
-            .where(cls.jti == jti, cls.revoked.is_(False))
-            .values(revoked=True, revoked_at=datetime.now(timezone.utc))
-        )
-        return result.rowcount == 1
-
     def revoke(self) -> None:
         """Mark this token as revoked."""
         self.revoked    = True
         self.revoked_at = datetime.now(timezone.utc)
-        
 
     def is_valid(self) -> bool:
         """True if the token has not been revoked and has not expired."""

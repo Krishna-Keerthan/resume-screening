@@ -25,6 +25,7 @@ from app.core.security import (
     verify_password,
     AuthError,
 )
+from app.repositories.refresh_token import RefreshTokenRepository
 from app.schemas.auth import (
     ChangePasswordSchema,
     LoginSchema,
@@ -81,37 +82,24 @@ def _clear_refresh_cookie(response) -> None:
 
 def _store_refresh_token(jti: str, raw_refresh: str, user_id: str, role: str) -> None:
     """
-    Flush a hashed refresh token row into the current SQLAlchemy session.
+    Add a hashed refresh token row to the session and flush it. Does not commit.
 
-    This function only calls flush() — it does NOT commit.
-
-    Commit responsibility (after all fixes applied):
-      - register_candidate / register_recruiter: commit their own user row
-        explicitly before calling _auth_response().
-      - _auth_response calls _store_refresh_token (flush only), then returns.
-      - The after_request middleware commits the refresh_token row as part of
-        the same transaction on any 2xx response.
-      - For security-critical paths (logout, change_password, logout_all),
-        the route handler commits explicitly before building the response.
-
-    Never call db.session.commit() here — the caller owns the transaction.
+    The caller owns the transaction: the after_request middleware commits it
+    with any 2xx response, and the security-critical routes (refresh, logout,
+    logout-all, change-password) commit their revocations before they respond.
     """
-    from app.models.refresh_token import RefreshToken
-
-    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-    rt = RefreshToken.create(
+    RefreshTokenRepository().create_token(
         jti=jti,
         raw_token=raw_refresh,
         user_id=user_id,
         role=role,
-        expires_at=expires_at,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
     )
-    rt.save()   # flush only
 
 
 def _reject_dead_session(stored):
     """Revoke the presented refresh token and answer 401 for an account that can no longer hold a session."""
-    stored.revoke()
+    RefreshTokenRepository().revoke(stored)
     db.session.commit()
     resp = make_response(*error(
         "Session is no longer valid. Please log in again.",
@@ -124,9 +112,7 @@ def _reject_dead_session(stored):
 
 def _reject_reused_token(user_id: str):
     """A rotated or revoked refresh token was presented again: end every session of its owner."""
-    from app.models.refresh_token import RefreshToken
-
-    revoked = RefreshToken.revoke_all_for_user(user_id)
+    revoked = RefreshTokenRepository().revoke_all_for_user(user_id)
     db.session.commit()
     logger.warning("Refresh token reuse", extra={"user_id": user_id, "revoked_sessions": revoked})
     resp = make_response(*error(
@@ -138,10 +124,13 @@ def _reject_reused_token(user_id: str):
 
 def _auth_response(user_dict: dict, role: str, status: int = 200):
     """
-    Build the standard auth success response.
+    Issue a token pair for user_dict["id"] and build the auth success response.
 
-    Tokens are generated here. The caller has already committed the user row
-    and refresh token row before calling this function.
+    Creates the access and refresh tokens, flushes the refresh token's row
+    (hash only) into the session, and sets the refresh cookie. It does not
+    commit: registration commits the new user row before calling this, and
+    the after_request middleware commits the refresh token row with the 2xx
+    response.
     """
     from app.core.security import create_tokens
 
@@ -308,8 +297,8 @@ def login():
 
     Body: { email, password, role }
 
-    Login only reads from DB — no write before _auth_response.
-    _auth_response itself stores + commits the refresh_token row.
+    Login only reads from DB — no write before _auth_response, which flushes
+    the refresh_token row; the middleware commits it with the 200.
     """
     data, err = parse_body(LoginSchema)
     if err:
@@ -376,9 +365,8 @@ def refresh():
     user_id = payload["sub"]
     role    = payload["role"]
 
-    from app.models.refresh_token import RefreshToken
-
-    stored = RefreshToken.get_by_jti(jti)
+    tokens = RefreshTokenRepository()
+    stored = tokens.get_by_jti(jti)
 
     if not stored:
         resp = make_response(*error(
@@ -413,17 +401,12 @@ def refresh():
         # 1️⃣ Claim the presented token. Only one request can flip revoked
         # from False to True; every other holder of this cookie lost the
         # race or replayed an old token, and is treated as reuse.
-        if not RefreshToken.claim(jti):
+        if not tokens.claim(jti):
             return _reject_reused_token(stored.user_id)
 
         # 2️⃣ Create new refresh token
         access, new_refresh_token , new_jti = create_tokens(user_id, role)
-        new_rt = RefreshToken.create(jti=new_jti,
-                                    raw_token=new_refresh_token,
-                                     user_id=user_id, 
-                                     role=role,
-                                     expires_at=datetime.now(timezone.utc)+timedelta(days=7))
-        new_rt.save()
+        _store_refresh_token(new_jti, new_refresh_token, user_id, role)
 
         # 3️⃣ Commit the claim and the new token together
         db.session.commit()
@@ -461,15 +444,13 @@ def logout():
     raw_refresh = request.cookies.get(_COOKIE_NAME)
 
     if raw_refresh:
-        from app.models.refresh_token import RefreshToken
-        stored = RefreshToken.get_by_hash(raw_refresh)
+        tokens = RefreshTokenRepository()
+        stored = tokens.get_by_hash(raw_refresh)
         if stored and not stored.revoked:
-            stored.revoke()         # flush only
-            
-            # ADD: commit the revocation immediately.
-            # Security-critical: the token must be invalidated NOW,
-            # before we build the response. If anything fails after
-            # this point, the token is already dead — that's correct.
+            tokens.revoke(stored)
+
+            # Commit the revocation before responding: if anything fails
+            # after this point the token is already dead.
             try:
                 db.session.commit()
             except Exception:
@@ -498,14 +479,12 @@ def logout_all():
     user_id, role = get_current_user()
 
     try:
-        from app.models.refresh_token import RefreshToken
-        count = RefreshToken.revoke_all_for_user(user_id)  # flush only
-        
-        # ADD: commit immediately — don't rely on middleware.
-        # These revocations are security-critical and must persist
-        # regardless of what happens when building the response.
+        count = RefreshTokenRepository().revoke_all_for_user(user_id)
+
+        # Commit now rather than leave it to the middleware: the revocations
+        # must persist whatever happens when the response is built.
         db.session.commit()
-        
+
         logger.info("All tokens revoked", extra={"user_id": user_id, "count": count})
         resp = make_response(
             *success(
@@ -582,8 +561,7 @@ def change_password():
         user.password_hash = hash_password(data["new_password"])
         user.save()
 
-        from app.models.refresh_token import RefreshToken
-        RefreshToken.revoke_all_for_user(user_id)
+        RefreshTokenRepository().revoke_all_for_user(user_id)
 
         try:
             db.session.commit()

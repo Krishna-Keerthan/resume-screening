@@ -1,33 +1,15 @@
 """
 app/repositories/refresh_token.py
 
-Repository for RefreshToken — isolates all DB operations for refresh tokens.
-
-WHY THIS FILE EXISTS (FIX RT-01):
-  The original codebase had no RefreshTokenRepository. All DB operations
-  (get_by_jti, get_by_hash, revoke_all_for_user, revoke) lived directly on
-  the RefreshToken model class, which violates the 4-layer architecture:
-
-    API → Service → Repository → Model
-
-  Model methods should be pure data containers and business logic helpers.
-  They must NOT call db.session directly — that's the repository's job.
-
-  The specific violation (RT-01): RefreshToken.revoke() and
-  revoke_all_for_user() called db.session.flush() inside the model, coupling
-  the model to the ORM session lifecycle. This made the model untestable
-  without a live DB session.
-
-  This file extracts all session operations into a proper repository.
-  The model keeps its classmethod helpers (hash_token, create, is_valid)
-  as pure logic — no session calls.
-
-  auth.py should import and use RefreshTokenRepository instead of calling
-  model classmethods that touch the session.
+Repository for RefreshToken: every refresh-token query and update goes
+through here, so the model stays a plain data class that never touches
+db.session.
 """
 
 import logging
 from datetime import datetime, timezone
+
+from sqlalchemy import update
 
 from app.core.database import db
 from app.models.refresh_token import RefreshToken
@@ -133,12 +115,7 @@ class RefreshTokenRepository(BaseRepository[RefreshToken]):
 
     def revoke(self, token: RefreshToken) -> None:
         """
-        Mark a single token as revoked.
-
-        FIX RT-01: Original code called db.session.flush() inside the model
-        method. Session lifecycle is the repository's responsibility.
-        The model's revoke() helper now only mutates fields; flushing is done
-        here.
+        Mark a single token as revoked and flush.
         """
         token.revoked    = True
         token.revoked_at = datetime.now(timezone.utc)
@@ -146,12 +123,24 @@ class RefreshTokenRepository(BaseRepository[RefreshToken]):
         db.session.flush()
         logger.debug("RefreshToken revoked jti=%s user=%s", token.jti, token.user_id)
 
+    def claim(self, jti: str) -> bool:
+        """
+        Atomically revoke the token with this JTI if it is still unrevoked.
+
+        A single conditional UPDATE, so of any number of concurrent callers
+        exactly one gets True. False means the token was already revoked, or
+        does not exist. Does not commit.
+        """
+        result = db.session.execute(
+            update(RefreshToken)
+            .where(RefreshToken.jti == jti, RefreshToken.revoked.is_(False))
+            .values(revoked=True, revoked_at=datetime.now(timezone.utc))
+        )
+        return result.rowcount == 1
+
     def revoke_all_for_user(self, user_id: str) -> int:
         """
         Revoke every active refresh token for a user (logout-all).
-
-        FIX RT-01: Original code lived on the model class and called
-        db.session.flush() inside a model method. Moved here.
 
         Returns:
             Number of rows updated.

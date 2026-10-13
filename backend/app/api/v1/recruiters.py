@@ -18,7 +18,7 @@ from flask import Blueprint, request
 
 from app.core.responses import created, error, no_content, success, success_list
 from app.core.security import get_current_user, require_auth, require_ownership
-from app.models.refresh_token import RefreshToken
+from app.repositories.refresh_token import RefreshTokenRepository
 from app.schemas.recruiter import UpdateRecruiterSchema
 
 from ._helpers import (
@@ -114,7 +114,7 @@ def delete_recruiter(recruiter_id: str):
             )
 
         repo.soft_delete(recruiter)
-        RefreshToken.revoke_all_for_user(recruiter_id)
+        RefreshTokenRepository().revoke_all_for_user(recruiter_id)
         logger.info("Recruiter deleted", extra={"recruiter_id": recruiter_id})
         return no_content()
     except Exception:

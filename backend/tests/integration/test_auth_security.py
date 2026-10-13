@@ -96,7 +96,7 @@ def _cleared(response) -> bool:
 def test_refresh_rejects_a_dead_account_and_revokes_its_token(
     client, account, state, account_password
 ):
-    from app.models.refresh_token import RefreshToken
+    from app.repositories.refresh_token import RefreshTokenRepository
 
     user, role = account
     raw = _refresh_cookie(_login(client, user, role, account_password))
@@ -107,7 +107,7 @@ def test_refresh_rejects_a_dead_account_and_revokes_its_token(
     assert r.status_code == 401
     assert "access_token" not in (r.get_json().get("data") or {})
     assert _cleared(r)
-    assert RefreshToken.get_by_hash(raw).revoked is True
+    assert RefreshTokenRepository().get_by_hash(raw).revoked is True
 
     # The revoked token is now dead for good, even if the account came back.
     again = client.post(f"{BASE}/refresh", headers=_cookie_header(raw))
@@ -180,7 +180,7 @@ def test_access_token_for_a_user_that_does_not_exist_is_rejected(client, candida
 def test_deleting_an_account_revokes_all_its_refresh_tokens(
     client, account, account_password
 ):
-    from app.models.refresh_token import RefreshToken
+    from app.repositories.refresh_token import RefreshTokenRepository
 
     user, role = account
     first = _login(client, user, role, account_password)
@@ -192,7 +192,7 @@ def test_deleting_an_account_revokes_all_its_refresh_tokens(
     assert r.status_code == 204
 
     for raw in raws:
-        assert RefreshToken.get_by_hash(raw).revoked is True
+        assert RefreshTokenRepository().get_by_hash(raw).revoked is True
 
 
 def test_deleting_a_candidate_twice_is_rejected_the_second_time(
@@ -305,18 +305,19 @@ def test_losing_a_rotation_race_is_treated_as_reuse(client, candidate_a, account
 
     from app.core.database import db
     from app.models.refresh_token import RefreshToken
+    from app.repositories.refresh_token import RefreshTokenRepository
 
     raw = _refresh_cookie(_login(client, candidate_a, "candidate", account_password))
-    original = RefreshToken.get_by_jti.__func__
+    original = RefreshTokenRepository.get_by_jti
 
-    def read_then_lose_the_race(cls, jti):
-        row = original(cls, jti)
+    def read_then_lose_the_race(self, jti):
+        row = original(self, jti)
         db.session.execute(
             sa.update(RefreshToken.__table__).where(RefreshToken.jti == jti).values(revoked=True)
         )
         return row
 
-    with patch.object(RefreshToken, "get_by_jti", classmethod(read_then_lose_the_race)):
+    with patch.object(RefreshTokenRepository, "get_by_jti", read_then_lose_the_race):
         r = _refresh(client, raw)
 
     assert r.status_code == 401
