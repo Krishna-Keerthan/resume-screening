@@ -303,6 +303,7 @@ def require_auth(*roles: str) -> Callable:
             g.jwt_jti = payload.get("jti")
 
             return fn(*args, **kwargs)
+        wrapper.requires_auth = True   # lets tests verify that every route is guarded
         return wrapper
     return decorator
 
