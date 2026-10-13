@@ -194,7 +194,7 @@ class ResumeRepository(BaseRepository[Resume]):
         """
         # Best-effort storage cleanup
         if storage_service is not None:
-            storage_key = getattr(resume, "storage_key", None) or getattr(resume, "file_path", None)
+            storage_key = resume.storage_key
             if storage_key:
                 try:
                     storage_service.delete(storage_key)

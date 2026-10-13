@@ -13,6 +13,7 @@ File upload validation utilities.
 import io
 import logging
 import os
+import re
 import uuid
 import zipfile
 from pathlib import Path
@@ -30,6 +31,24 @@ _ALLOWED_MIME: dict[str, str] = {
     "pdf":  "application/pdf",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
+
+
+def content_type_for(ext: str) -> str:
+    """The MIME type for a validated extension."""
+    return _ALLOWED_MIME.get(ext, "application/octet-stream")
+
+
+def safe_download_name(filename: str | None, ext: str) -> str:
+    """
+    A filename that is safe to put in a Content-Disposition header.
+
+    Keeps only the last path segment, drops control characters and quotes,
+    and always ends in the validated extension.
+    """
+    name = re.split(r"[/\\]", filename or "")[-1]
+    name = "".join(c for c in name if c.isprintable() and c not in "\"'").strip(" .")
+    stem = "" if name.lower() == ext.lower() else os.path.splitext(name)[0].strip(" .")
+    return f"{stem[:100] or 'resume'}.{ext}"
 
 
 DOCX_MAX_ENTRIES = 100

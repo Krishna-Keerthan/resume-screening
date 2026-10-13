@@ -17,10 +17,11 @@ Routes:
   POST   /resumes/<id>/rewrite-suggestions                               [owner]
 """
 
+import io
 import logging
 import json
 
-from flask import Blueprint, current_app, g, request
+from flask import Blueprint, current_app, g, request, send_file
 
 from app.core.responses import error, no_content, success, success_list
 from app.core.security import require_auth
@@ -104,6 +105,56 @@ def get_resume(resume_id: str):
 # Delete
 # ─────────────────────────────────────────────────────────────────────────────
 
+@resumes_bp.get("/<resume_id>/download")
+@require_auth("candidate", "recruiter")
+def download_resume(resume_id: str):
+    """
+    GET /api/v1/resumes/<resume_id>/download
+
+    The resume's candidate, or a recruiter it was submitted to, may download
+    the original file.
+      cloudinary — JSON { url, expires_in }: a signed URL that expires after
+                   DOWNLOAD_URL_TTL_SECONDS (300).
+      local      — the file itself, streamed as an attachment.
+    """
+    from app.services.storage_service import StorageError, StorageService
+    from app.utils.file_helpers import content_type_for, safe_download_name
+
+    resume, err = get_viewable_resume(resume_id)
+    if err:
+        return err
+
+    key = resume.storage_key
+    if not key:
+        return error("The stored file for this resume was not found.", code="FILE_NOT_FOUND", status=404)
+
+    storage = StorageService.from_config(current_app.config)
+    try:
+        if storage.provider == "cloudinary":
+            ttl = current_app.config.get("DOWNLOAD_URL_TTL_SECONDS", 300)
+            return success(
+                data={"url": storage.signed_url(key, ttl=ttl), "expires_in": ttl},
+                message="Download link created.",
+            )
+        data = storage.download_bytes(key)
+    except StorageError:
+        logger.error("download_resume: storage failed", extra={"resume_id": resume_id}, exc_info=True)
+        if storage.provider == "local":
+            return error("The stored file for this resume was not found.", code="FILE_NOT_FOUND", status=404)
+        return error("The file store is unavailable. Please try again.", code="STORAGE_UNAVAILABLE", status=502)
+
+    ext = getattr(resume.file_type, "value", resume.file_type)
+    response = send_file(
+        io.BytesIO(data),
+        mimetype=content_type_for(ext),
+        as_attachment=True,
+        download_name=safe_download_name(resume.filename, ext),
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
 @resumes_bp.delete("/<resume_id>")
 @require_auth("candidate")
 def delete_resume(resume_id: str):
@@ -121,7 +172,7 @@ def delete_resume(resume_id: str):
             return err
 
         # Best-effort: delete file from storage backend
-        storage_key = getattr(resume, "storage_key", None) or getattr(resume, "file_path", None)
+        storage_key = resume.storage_key
         if storage_key:
             try:
                 from app.services.storage_service import StorageService
@@ -164,8 +215,8 @@ def analyze_resume(resume_id: str):
     Body (optional): { force_refresh: false }
 
     KEY CHANGE: When force_reparse=True, bytes are fetched from
-    storage_service.download_bytes(resume.file_path). This works
-    identically for local (reads file) and Cloudinary (HTTP GET).
+    storage_service.download_bytes(resume.storage_key). This works
+    identically for local (reads file) and Cloudinary (signed URL).
     No os.path / local file assumptions remain.
     """
     data, err = parse_body(AnalyzeResumeSchema)
@@ -188,19 +239,19 @@ def analyze_resume(resume_id: str):
         # so the service layer stays unaware of the storage provider.
         if force_refresh:
             svcs = get_services()
-            file_url = getattr(resume, "file_path", None)
+            storage_key = resume.storage_key
 
-            if not file_url:
+            if not storage_key:
                 return error(
-                    "Resume has no stored file URL. Cannot re-parse.",
-                    code="NO_FILE_URL",
+                    "Resume has no stored file. Cannot re-parse.",
+                    code="NO_STORAGE_KEY",
                     status=422,
                 )
 
             try:
                 from app.services.storage_service import StorageService, StorageError
                 storage    = StorageService.from_config(current_app.config)
-                file_bytes = storage.download_bytes(file_url)
+                file_bytes = storage.download_bytes(storage_key)
             except Exception as exc:
                 logger.error("Failed to download resume for re-parse", exc_info=True)
                 return error(
