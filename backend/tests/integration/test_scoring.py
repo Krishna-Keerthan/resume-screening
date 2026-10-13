@@ -157,6 +157,31 @@ class TestJobRecommendationsEndpoint:
                          json={"resume_id": resume_a.id, "top_n": 5})
         assert r.get_json()["data"]["total"] == 0
 
+    def test_returns_what_recommend_returns_for_the_callers_resume(
+        self, client, db, resume_a, candidate_a, headers_for, mock_services
+    ):
+        from app.services.job_recommendation_service import JobRecommendation, JobRecommendationService
+        mock_services.job_recommendations = create_autospec(JobRecommendationService, instance=True)
+        rec = JobRecommendation(
+            job_id="job-1", title="Backend Dev", company="Acme", location="Remote",
+            job_type="full-time", final_score=0.81, score_label="excellent",
+            matched_skills=["python"], missing_skills=["kubernetes"],
+        )
+        mock_services.job_recommendations.recommend.return_value = [rec]
+
+        r = client.post(f"{BASE}/job-recommendations", json={"resume_id": resume_a.id, "top_n": 5},
+                        headers=headers_for(candidate_a))
+
+        assert r.status_code == 200
+        mock_services.job_recommendations.recommend.assert_called_once()
+        assert mock_services.job_recommendations.recommend.call_args.kwargs["resume"].id == resume_a.id
+        data = r.get_json()["data"]
+        assert data["resume_id"] == resume_a.id
+        assert data["total"] == 1
+        assert data["recommendations"][0]["job_id"] == "job-1"
+        assert data["recommendations"][0]["final_score"] == 0.81
+        assert data["recommendations"][0]["missing_skills"] == ["kubernetes"]
+
     def test_recommend_receives_the_callers_resume(
         self, client, db, resume_a, candidate_a, headers_for, mock_services
     ):
