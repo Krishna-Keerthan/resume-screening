@@ -174,7 +174,7 @@ class CandidateRankingService:
         candidate_ids = list({app.candidate_id for app in applications})
         candidates_by_id = {}
         for cid in candidate_ids:
-            cand = self._cand_repo.get_by_id(cid)
+            cand = self._cand_repo.get_active_by_id(cid)
             if cand:
                 candidates_by_id[cid] = cand
 
