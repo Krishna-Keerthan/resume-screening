@@ -166,3 +166,33 @@ def test_access_token_for_a_user_that_does_not_exist_is_rejected(client, candida
     db.session.commit()
 
     assert client.get(f"{BASE}/me", headers=headers).status_code == 401
+
+
+# ─── Account deletion ─────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("account", ["candidate", "recruiter"], indirect=True)
+def test_deleting_an_account_revokes_all_its_refresh_tokens(
+    client, account, account_password
+):
+    from app.models.refresh_token import RefreshToken
+
+    user, role = account
+    first = _login(client, user, role, account_password)
+    second = _login(client, user, role, account_password)
+    raws = [_refresh_cookie(first), _refresh_cookie(second)]
+    token = first.get_json()["data"]["access_token"]
+
+    r = client.delete(f"/api/v1/{role}s/{user.id}", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 204
+
+    for raw in raws:
+        assert RefreshToken.get_by_hash(raw).revoked is True
+
+
+def test_deleting_a_candidate_twice_is_rejected_the_second_time(
+    client, candidate_a, headers_for
+):
+    headers = headers_for(candidate_a)
+    url = f"/api/v1/candidates/{candidate_a.id}"
+    assert client.delete(url, headers=headers).status_code == 204
+    assert client.delete(url, headers=headers).status_code == 401

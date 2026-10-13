@@ -26,6 +26,7 @@ from app.core.security import require_auth, require_ownership
 from app.schemas.candidate import CandidateQuerySchema, UpdateCandidateSchema
 from app.core.database import db
 from app.core.exceptions import ResumeUploadFailed
+from app.models.refresh_token import RefreshToken
 from app.utils.file_helpers import validate_upload
 
 from ._helpers import (
@@ -178,6 +179,7 @@ def delete_candidate(candidate_id: str):
             )
 
         repo.soft_delete(candidate)
+        RefreshToken.revoke_all_for_user(candidate_id)
         logger.info("Candidate deleted", extra={"candidate_id": candidate_id})
         return no_content()
     except Exception:
