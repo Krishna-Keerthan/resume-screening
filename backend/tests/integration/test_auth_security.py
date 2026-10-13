@@ -9,6 +9,12 @@ BASE = "/api/v1/auth"
 COOKIE = "refresh_token"
 
 
+@pytest.fixture()
+def client(app):
+    """A client with no cookie jar, so each request sends exactly the cookie the test passes."""
+    return app.test_client(use_cookies=False)
+
+
 def _login(client, user, role, password):
     r = client.post(f"{BASE}/login", json={
         "email": user.email, "password": password, "role": role,
@@ -232,3 +238,87 @@ def test_a_request_loads_the_account_once(client, account, headers_for):
 
     assert r.status_code == 200
     assert spy.call_count == 1
+
+
+# ─── Refresh-token rotation and reuse ─────────────────────────────────────────
+
+def _refresh(client, raw):
+    return client.post(f"{BASE}/refresh", headers=_cookie_header(raw))
+
+
+def _live_tokens(user_id) -> int:
+    from app.core.database import db
+    from app.models.refresh_token import RefreshToken
+    return db.session.query(RefreshToken).filter_by(user_id=user_id, revoked=False).count()
+
+
+def test_a_chain_of_refreshes_keeps_working(client, candidate_a, account_password):
+    raw = _refresh_cookie(_login(client, candidate_a, "candidate", account_password))
+
+    for _ in range(3):
+        r = _refresh(client, raw)
+        assert r.status_code == 200, r.get_json()
+        raw = _refresh_cookie(r)
+        token = r.get_json()["data"]["access_token"]
+        me = client.get(f"{BASE}/me", headers={"Authorization": f"Bearer {token}"})
+        assert me.status_code == 200
+
+    assert _live_tokens(candidate_a.id) == 1
+
+
+def test_replaying_a_rotated_token_is_rejected_immediately(client, candidate_a, account_password):
+    old = _refresh_cookie(_login(client, candidate_a, "candidate", account_password))
+    assert _refresh(client, old).status_code == 200
+
+    replay = _refresh(client, old)
+
+    assert replay.status_code == 401
+    assert replay.get_json()["error"]["error_code"] == "TOKEN_REUSED"
+    assert "access_token" not in (replay.get_json().get("data") or {})
+    assert _cleared(replay)
+
+
+def test_reuse_revokes_every_session_of_that_user_and_only_that_user(
+    client, candidate_a, recruiter_a, account_password
+):
+    first = _refresh_cookie(_login(client, candidate_a, "candidate", account_password))
+    second = _refresh_cookie(_login(client, candidate_a, "candidate", account_password))
+    bystander = _refresh_cookie(_login(client, recruiter_a, "recruiter", account_password))
+
+    rotated = _refresh_cookie(_refresh(client, first))
+    assert _refresh(client, first).get_json()["error"]["error_code"] == "TOKEN_REUSED"
+
+    assert _live_tokens(candidate_a.id) == 0
+    assert _refresh(client, second).status_code == 401
+    assert _refresh(client, rotated).status_code == 401
+    assert _refresh(client, bystander).status_code == 200
+
+
+def test_losing_a_rotation_race_is_treated_as_reuse(client, candidate_a, account_password):
+    """
+    The token is read as valid, then another request rotates it before this
+    one gets to. Only one of them may win.
+    """
+    from unittest.mock import patch
+
+    import sqlalchemy as sa
+
+    from app.core.database import db
+    from app.models.refresh_token import RefreshToken
+
+    raw = _refresh_cookie(_login(client, candidate_a, "candidate", account_password))
+    original = RefreshToken.get_by_jti.__func__
+
+    def read_then_lose_the_race(cls, jti):
+        row = original(cls, jti)
+        db.session.execute(
+            sa.update(RefreshToken.__table__).where(RefreshToken.jti == jti).values(revoked=True)
+        )
+        return row
+
+    with patch.object(RefreshToken, "get_by_jti", classmethod(read_then_lose_the_race)):
+        r = _refresh(client, raw)
+
+    assert r.status_code == 401
+    assert r.get_json()["error"]["error_code"] == "TOKEN_REUSED"
+    assert _live_tokens(candidate_a.id) == 0

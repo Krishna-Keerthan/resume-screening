@@ -33,7 +33,7 @@ import hashlib
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Index, String
+from sqlalchemy import Boolean, DateTime, Index, String, update
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import BaseModel, db
@@ -161,6 +161,21 @@ class RefreshToken(BaseModel):
             rt.revoked_at = now
         db.session.flush()
         return len(updated)
+
+    @classmethod
+    def claim(cls, jti: str) -> bool:
+        """
+        Atomically revoke the token with this JTI if it is still unrevoked.
+
+        A single conditional UPDATE, so of any number of concurrent callers
+        exactly one gets True. False means the token was already revoked.
+        """
+        result = db.session.execute(
+            update(cls)
+            .where(cls.jti == jti, cls.revoked.is_(False))
+            .values(revoked=True, revoked_at=datetime.now(timezone.utc))
+        )
+        return result.rowcount == 1
 
     def revoke(self) -> None:
         """Mark this token as revoked."""
