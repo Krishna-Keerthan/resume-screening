@@ -1,10 +1,11 @@
-
 """
 tests/integration/test_jobs.py
 
 Integration tests for /api/v1/jobs/* endpoints.
 """
 import uuid
+from types import SimpleNamespace
+
 import pytest
 
 BASE = "/api/v1/jobs"
@@ -68,50 +69,77 @@ class TestListJobs:
         r = client.get(f"{BASE}/?job_type=gig-work")
         assert r.status_code == 400
 
+    def test_recruiter_id_query_param_is_ignored(self, client, db, job_a, job_b, recruiter_a):
+        body = client.get(f"{BASE}/?recruiter_id={recruiter_a.id}").get_json()
+        ids = {j["id"] for j in body["data"]}
+        assert {job_a.id, job_b.id} <= ids
+
 
 class TestCreateJob:
+    @pytest.fixture(autouse=True)
+    def _auth(self, recruiter_a, headers_for):
+        self.recruiter = recruiter_a
+        self.headers = headers_for(recruiter_a)
+
     def test_returns_201(self, client, db, json_post):
-        r, _ = json_post(f"{BASE}/", _job_payload())
+        r, _ = json_post(f"{BASE}/", _job_payload(), headers=self.headers)
         assert r.status_code == 201
 
     def test_id_in_response(self, client, db, json_post):
-        _, body = json_post(f"{BASE}/", _job_payload())
+        _, body = json_post(f"{BASE}/", _job_payload(), headers=self.headers)
         assert body["data"]["id"] is not None
 
     def test_fields_correct(self, client, db, json_post):
         payload = _job_payload()
-        _, body = json_post(f"{BASE}/", payload)
+        _, body = json_post(f"{BASE}/", payload, headers=self.headers)
         assert body["data"]["title"] == payload["title"]
         assert body["data"]["company"] == payload["company"]
         assert body["data"]["experience_years"] == payload["experience_years"]
 
     def test_required_skills_saved(self, client, db, json_post):
-        _, body = json_post(f"{BASE}/", _job_payload())
+        _, body = json_post(f"{BASE}/", _job_payload(), headers=self.headers)
         assert "Python" in body["data"]["required_skills"]
 
     def test_default_status_active(self, client, db, json_post):
-        _, body = json_post(f"{BASE}/", _job_payload())
+        _, body = json_post(f"{BASE}/", _job_payload(), headers=self.headers)
         assert body["data"]["status"] == "active"
 
     def test_missing_title_400(self, client, db, json_post):
         payload = _job_payload()
         del payload["title"]
-        r, _ = json_post(f"{BASE}/", payload)
+        r, _ = json_post(f"{BASE}/", payload, headers=self.headers)
         assert r.status_code == 400
 
     def test_missing_company_400(self, client, db, json_post):
         payload = _job_payload()
         del payload["company"]
-        r, _ = json_post(f"{BASE}/", payload)
+        r, _ = json_post(f"{BASE}/", payload, headers=self.headers)
         assert r.status_code == 400
 
     def test_description_too_short_400(self, client, db, json_post):
-        r, _ = json_post(f"{BASE}/", _job_payload(description="Short"))
+        r, _ = json_post(f"{BASE}/", _job_payload(description="Short"), headers=self.headers)
         assert r.status_code == 400
 
     def test_invalid_salary_range_400(self, client, db, json_post):
-        r, body = json_post(f"{BASE}/", _job_payload(salary_min=100000, salary_max=50000))
+        r, body = json_post(f"{BASE}/", _job_payload(salary_min=100000, salary_max=50000),
+                            headers=self.headers)
         assert r.status_code == 400
+
+    def test_no_token_401(self, client, db, json_post, anon):
+        r, _ = json_post(f"{BASE}/", _job_payload(), headers=anon)
+        assert r.status_code == 401
+
+    def test_candidate_token_403(self, client, db, json_post, candidate_a, headers_for):
+        r, _ = json_post(f"{BASE}/", _job_payload(), headers=headers_for(candidate_a))
+        assert r.status_code == 403
+
+    def test_recruiter_id_comes_from_the_token_not_the_body(
+        self, client, db, json_post, recruiter_b
+    ):
+        r, body = json_post(f"{BASE}/", _job_payload(recruiter_id=recruiter_b.id),
+                            headers=self.headers)
+        assert r.status_code == 201
+        assert body["data"]["recruiter_id"] == self.recruiter.id
 
 
 class TestGetJob:
@@ -129,61 +157,141 @@ class TestGetJob:
         assert r.get_json()["error"]["error_code"] == "JOB_NOT_FOUND"
 
 
+@pytest.fixture()
+def draft_job_a(db, job_a):
+    job_a.status = "draft"
+    db.session.commit()
+    return job_a
+
+
 class TestUpdateJob:
-    def test_returns_200(self, client, db, sample_job, json_patch):
-        r, _ = json_patch(f"{BASE}/{sample_job.id}", {"location": "Bangalore, India"})
-        assert r.status_code == 200
+    def test_access_rules(self, check_access, job_a, recruiter_a, recruiter_b):
+        r = check_access("PATCH", f"{BASE}/{job_a.id}", owner=recruiter_a, other=recruiter_b,
+                         json={"location": "Hyderabad, India"})
+        assert r.get_json()["data"]["location"] == "Hyderabad, India"
 
-    def test_location_updated(self, client, db, sample_job, json_patch):
-        _, body = json_patch(f"{BASE}/{sample_job.id}", {"location": "Hyderabad, India"})
-        assert body["data"]["location"] == "Hyderabad, India"
+    def test_non_owner_cannot_change_anything(self, client, db, job_a, recruiter_b, headers_for):
+        client.patch(f"{BASE}/{job_a.id}", json={"title": "Hijacked"}, headers=headers_for(recruiter_b))
+        db.session.refresh(job_a)
+        assert job_a.title == "Job A"
 
-    def test_partial_update_keeps_other_fields(self, client, db, sample_job, json_patch):
-        original_title = sample_job.title
-        _, body = json_patch(f"{BASE}/{sample_job.id}", {"location": "Chennai"})
-        assert body["data"]["title"] == original_title
+    def test_non_owner_gets_404_for_a_job_that_is_not_active(
+        self, check_access, draft_job_a, recruiter_a, recruiter_b
+    ):
+        check_access("PATCH", f"{BASE}/{draft_job_a.id}", owner=recruiter_a, other=recruiter_b,
+                     json={"location": "X"}, other_status=404)
 
-    def test_status_can_be_changed(self, client, db, sample_job, json_patch):
-        _, body = json_patch(f"{BASE}/{sample_job.id}", {"status": "paused"})
-        assert body["data"]["status"] == "paused"
+    def test_candidate_token_403(self, client, db, job_a, candidate_a, headers_for):
+        r = client.patch(f"{BASE}/{job_a.id}", json={"location": "X"}, headers=headers_for(candidate_a))
+        assert r.status_code == 403
 
-    def test_invalid_status_400(self, client, db, sample_job, json_patch):
-        r, _ = json_patch(f"{BASE}/{sample_job.id}", {"status": "invalid-status"})
+    def test_partial_update_keeps_other_fields(self, client, db, job_a, recruiter_a, headers_for):
+        r = client.patch(f"{BASE}/{job_a.id}", json={"location": "Chennai"}, headers=headers_for(recruiter_a))
+        assert r.get_json()["data"]["title"] == "Job A"
+
+    def test_status_can_be_changed(self, client, db, job_a, recruiter_a, headers_for):
+        r = client.patch(f"{BASE}/{job_a.id}", json={"status": "paused"}, headers=headers_for(recruiter_a))
+        assert r.get_json()["data"]["status"] == "paused"
+
+    def test_invalid_status_400(self, client, db, job_a, recruiter_a, headers_for):
+        r = client.patch(f"{BASE}/{job_a.id}", json={"status": "invalid-status"}, headers=headers_for(recruiter_a))
         assert r.status_code == 400
 
-    def test_nonexistent_404(self, client, db, json_patch):
-        r, _ = json_patch(f"{BASE}/ghost-job", {"location": "X"})
+    def test_recruiter_id_in_the_body_is_ignored(self, client, db, job_a, recruiter_a, recruiter_b, headers_for):
+        r = client.patch(f"{BASE}/{job_a.id}", json={"recruiter_id": recruiter_b.id, "location": "X"},
+                         headers=headers_for(recruiter_a))
+        assert r.status_code == 200
+        db.session.refresh(job_a)
+        assert job_a.recruiter_id == recruiter_a.id
+
+    def test_nonexistent_404(self, client, db, recruiter_a, headers_for):
+        r = client.patch(f"{BASE}/ghost-job", json={"location": "X"}, headers=headers_for(recruiter_a))
         assert r.status_code == 404
 
 
 class TestDeleteJob:
-    def test_returns_204(self, client, db, sample_job):
-        assert client.delete(f"{BASE}/{sample_job.id}").status_code == 204
+    def test_access_rules(self, check_access, job_a, recruiter_a, recruiter_b):
+        r = check_access("DELETE", f"{BASE}/{job_a.id}", owner=recruiter_a, other=recruiter_b)
+        assert r.status_code == 204
 
-    def test_deleted_is_404(self, client, db, sample_job):
-        client.delete(f"{BASE}/{sample_job.id}")
-        assert client.get(f"{BASE}/{sample_job.id}").status_code == 404
+    def test_non_owner_cannot_delete(self, client, db, job_a, recruiter_b, headers_for):
+        client.delete(f"{BASE}/{job_a.id}", headers=headers_for(recruiter_b))
+        db.session.refresh(job_a)
+        assert job_a.is_deleted is False
 
-    def test_nonexistent_404(self, client, db):
-        assert client.delete(f"{BASE}/phantom").status_code == 404
+    def test_non_owner_gets_404_for_a_job_that_is_not_active(
+        self, check_access, draft_job_a, recruiter_a, recruiter_b
+    ):
+        check_access("DELETE", f"{BASE}/{draft_job_a.id}", owner=recruiter_a, other=recruiter_b,
+                     other_status=404)
+
+    def test_deleted_is_404(self, client, db, job_a, recruiter_a, headers_for):
+        client.delete(f"{BASE}/{job_a.id}", headers=headers_for(recruiter_a))
+        assert client.get(f"{BASE}/{job_a.id}").status_code == 404
+
+    def test_nonexistent_404(self, client, db, recruiter_a, headers_for):
+        assert client.delete(f"{BASE}/phantom", headers=headers_for(recruiter_a)).status_code == 404
+
+
+def _ranking(**overrides):
+    fields = dict(total=0, page=1, per_page=20, candidates=[])
+    fields.update(overrides)
+    return SimpleNamespace(**fields)
 
 
 class TestJobCandidatesEndpoint:
-    def test_returns_200(self, client, db, sample_job, mock_services):
-        # Mock the ranking service
-        from unittest.mock import MagicMock
-        result = MagicMock()
-        result.total      = 0
-        result.page       = 1
-        result.per_page   = 20
-        result.candidates = []
-        result.score_stats = MagicMock()
-        result.score_stats.__dict__ = {"mean": 0.0}
-        mock_services.candidate_ranking.rank_for_job.return_value = result
+    def test_access_rules(self, check_access, job_a, recruiter_a, recruiter_b, mock_services):
+        mock_services.candidate_ranking.rank_for_job.return_value = _ranking()
+        check_access("GET", f"{BASE}/{job_a.id}/candidates", owner=recruiter_a, other=recruiter_b)
 
-        r = client.get(f"{BASE}/{sample_job.id}/candidates")
-        assert r.status_code == 200
+    def test_non_owner_gets_404_for_a_job_that_is_not_active(
+        self, check_access, draft_job_a, recruiter_a, recruiter_b, mock_services
+    ):
+        mock_services.candidate_ranking.rank_for_job.return_value = _ranking()
+        check_access("GET", f"{BASE}/{draft_job_a.id}/candidates", owner=recruiter_a,
+                     other=recruiter_b, other_status=404)
 
-    def test_nonexistent_job_404(self, client, db, mock_services):
-        r = client.get(f"{BASE}/no-such-job/candidates")
+    def test_nonexistent_job_404(self, client, db, recruiter_a, headers_for, mock_services):
+        r = client.get(f"{BASE}/no-such-job/candidates", headers=headers_for(recruiter_a))
         assert r.status_code == 404
+
+
+class TestJobSkillGapsEndpoint:
+    def test_access_rules(self, check_access, job_a, recruiter_a, recruiter_b, mock_services):
+        mock_services.candidate_ranking.get_skill_gap_summary.return_value = {"most_common_missing": []}
+        check_access("GET", f"{BASE}/{job_a.id}/skill-gaps", owner=recruiter_a, other=recruiter_b)
+
+    def test_non_owner_gets_404_for_a_job_that_is_not_active(
+        self, check_access, draft_job_a, recruiter_a, recruiter_b, mock_services
+    ):
+        mock_services.candidate_ranking.get_skill_gap_summary.return_value = {}
+        check_access("GET", f"{BASE}/{draft_job_a.id}/skill-gaps", owner=recruiter_a,
+                     other=recruiter_b, other_status=404)
+
+
+class TestEnhanceJobEndpoint:
+    @staticmethod
+    def _enhancement(job):
+        return SimpleNamespace(
+            job_id=job.id, required_skills=[], nice_to_have_skills=[], responsibilities=[],
+            enhanced_description="", quality_score=0.5, completeness_score=0.5,
+            suggestions=[], duplicate_ids=[], llm_enhanced=False,
+        )
+
+    def test_access_rules(self, check_access, job_a, recruiter_a, recruiter_b, mock_services):
+        mock_services.smart_job_posting.enhance.return_value = self._enhancement(job_a)
+        check_access("POST", f"{BASE}/{job_a.id}/enhance", owner=recruiter_a, other=recruiter_b,
+                     json={"use_llm": False})
+
+    def test_non_owner_cannot_trigger_enhancement(
+        self, client, db, job_a, recruiter_b, headers_for, mock_services
+    ):
+        client.post(f"{BASE}/{job_a.id}/enhance", json={}, headers=headers_for(recruiter_b))
+        mock_services.smart_job_posting.enhance.assert_not_called()
+
+    def test_non_owner_gets_404_for_a_job_that_is_not_active(
+        self, check_access, draft_job_a, recruiter_a, recruiter_b, mock_services
+    ):
+        mock_services.smart_job_posting.enhance.return_value = self._enhancement(draft_job_a)
+        check_access("POST", f"{BASE}/{draft_job_a.id}/enhance", owner=recruiter_a,
+                     other=recruiter_b, json={}, other_status=404)

@@ -4,6 +4,7 @@ app/api/v1/_helpers.py
 Shared utilities used by all route handlers.
 
 Provides:
+  - get_owned_job()        — load a job the authenticated recruiter owns
   - get_services()         — fetch Services dataclass from app.extensions
   - parse_body()           — load + validate JSON body via Marshmallow schema
   - parse_query()          — load + validate query params via Marshmallow schema
@@ -30,6 +31,38 @@ from marshmallow import Schema, ValidationError
 from app.core.responses import error, validation_error
 
 logger = logging.getLogger(__name__)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ownership lookups
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_owned_job(job_id: str):
+    """
+    Load a job owned by the authenticated recruiter.
+
+    Returns (job, None) on success, or (None, error_response):
+      404 if the job does not exist or is deleted;
+      403 if it belongs to another recruiter, except 404 when the job is not
+          active, so draft and closed postings are not revealed to others.
+    """
+    from app.core.security import AuthError, assert_owns
+    from app.models.enums import JobStatus
+    from app.repositories import JobRepository
+
+    job = JobRepository().get_by_id(job_id)
+    if not job or job.is_deleted:
+        return None, error(f"Job '{job_id}' not found.", code="JOB_NOT_FOUND", status=404)
+
+    try:
+        assert_owns(job, g.jwt_user_id, owner_attr="recruiter_id",
+                    message="Access denied — this job belongs to another recruiter.")
+    except AuthError as exc:
+        status = getattr(job.status, "value", job.status)
+        if status != JobStatus.ACTIVE.value:
+            return None, error(f"Job '{job_id}' not found.", code="JOB_NOT_FOUND", status=404)
+        return None, error(str(exc), code=exc.code, status=exc.status)
+    return job, None
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -39,8 +39,6 @@ class CreateJobSchema(BaseSchema):
     salary_max      = fields.Integer(load_default=None, allow_none=True, validate=validate.Range(min=0))
     salary_currency = fields.String(load_default="USD", validate=validate.Length(max=10))
 
-    recruiter_id = fields.String(load_default=None)
-
     @validates_schema
     def validate_salary_range(self, data: dict, **kwargs) -> None:
         """salary_min must be <= salary_max when both are provided."""
@@ -91,7 +89,6 @@ class JobQuerySchema(BaseSchema):
     status         = fields.String(load_default=None, validate=validate.OneOf(_JOB_STATUSES))
     job_type       = fields.String(load_default=None, validate=validate.OneOf(_JOB_TYPES))
     location       = fields.String(load_default=None)
-    recruiter_id   = fields.String(load_default=None)
     min_experience = fields.Float(load_default=None, validate=validate.Range(min=0))
     max_experience = fields.Float(load_default=None, validate=validate.Range(min=0))
 
@@ -118,7 +115,6 @@ class SmartJobAssistSchema(BaseSchema):
     """
     description = fields.String(required=True, validate=validate.Length(min=20, max=10000))
     title       = fields.String(load_default=None, validate=validate.Length(max=300))
-    recruiter_id = fields.String(load_default=None)
 
 
 class JobSearchSchema(BaseSchema):

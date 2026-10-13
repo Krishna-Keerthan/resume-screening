@@ -20,12 +20,15 @@ import uuid
 
 from flask import Blueprint, request
 
+from flask import g
+
 from app.core.security import require_auth
 
 from app.core.responses import created, error, no_content, success, success_list
 from app.schemas.job import CreateJobSchema, JobQuerySchema, UpdateJobSchema
 
 from ._helpers import (
+    get_owned_job,
     get_services,
     parse_body,
     parse_query,
@@ -47,7 +50,7 @@ def list_jobs():
     GET /api/v1/jobs/
 
     Query params: page, limit, search, status, job_type, location,
-                  recruiter_id, min_experience, max_experience
+                  min_experience, max_experience
     """
     params, err = parse_query(JobQuerySchema)
     if err:
@@ -66,7 +69,6 @@ def list_jobs():
                 search=params.get("search"),
                 location=params.get("location"),
                 job_type=params.get("job_type"),
-                recruiter_id=params.get("recruiter_id"),
                 min_experience=params.get("min_experience"),
                 max_experience=params.get("max_experience"),
             )
@@ -77,7 +79,6 @@ def list_jobs():
                 search=params.get("search"),
                 location=params.get("location"),
                 job_type=params.get("job_type"),
-                recruiter_id=params.get("recruiter_id"),
                 min_experience=params.get("min_experience"),
                 max_experience=params.get("max_experience"),
             )
@@ -95,13 +96,15 @@ def list_jobs():
 
 
 @jobs_bp.post("")
+@require_auth("recruiter")
 def create_job():
     """
     POST /api/v1/jobs/
 
     Body: { title, company, description, required_skills?, ... }
 
-    Automatically triggers smart enhancement if recruiter_id is provided.
+    The job belongs to the authenticated recruiter. Smart enhancement runs
+    on creation.
     """
     data, err = parse_body(CreateJobSchema)
     if err:
@@ -114,7 +117,7 @@ def create_job():
 
         job = Job()
         job.id                  = str(uuid.uuid4())
-        job.recruiter_id        = data.get("recruiter_id")
+        job.recruiter_id        = g.jwt_user_id
         job.title               = data["title"]
         job.company             = data["company"]
         job.description         = data["description"]
@@ -173,6 +176,7 @@ def get_job(job_id: str):
 
 
 @jobs_bp.patch("/<job_id>")
+@require_auth("recruiter")
 def update_job(job_id: str):
     """PATCH /api/v1/jobs/<job_id>"""
     data, err = parse_body(UpdateJobSchema)
@@ -182,10 +186,9 @@ def update_job(job_id: str):
     try:
         from app.repositories import JobRepository
         repo = JobRepository()
-        job  = repo.get_by_id(job_id)
-
-        if not job or getattr(job, "is_deleted", False):
-            return error(f"Job '{job_id}' not found.", code="JOB_NOT_FOUND", status=404)
+        job, err = get_owned_job(job_id)
+        if err:
+            return err
 
         _SCALAR = (
             "title", "company", "description", "experience_years",
@@ -212,15 +215,15 @@ def update_job(job_id: str):
 
 
 @jobs_bp.delete("/<job_id>")
+@require_auth("recruiter")
 def delete_job(job_id: str):
     """DELETE /api/v1/jobs/<job_id> — soft-delete."""
     try:
         from app.repositories import JobRepository
         repo = JobRepository()
-        job  = repo.get_by_id(job_id)
-
-        if not job or getattr(job, "is_deleted", False):
-            return error(f"Job '{job_id}' not found.", code="JOB_NOT_FOUND", status=404)
+        job, err = get_owned_job(job_id)
+        if err:
+            return err
 
         repo.soft_delete(job)
         logger.info("Job deleted", extra={"job_id": job_id})
@@ -235,6 +238,7 @@ def delete_job(job_id: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @jobs_bp.post("/<job_id>/enhance")
+@require_auth("recruiter")
 def enhance_job(job_id: str):
     """
     POST /api/v1/jobs/<job_id>/enhance
@@ -252,12 +256,9 @@ def enhance_job(job_id: str):
     use_llm = bool(body.get("use_llm", True))
 
     try:
-        from app.repositories import JobRepository
-        repo = JobRepository()
-        job  = repo.get_by_id(job_id)
-
-        if not job or getattr(job, "is_deleted", False):
-            return error(f"Job '{job_id}' not found.", code="JOB_NOT_FOUND", status=404)
+        job, err = get_owned_job(job_id)
+        if err:
+            return err
 
         svcs   = get_services()
         result = svcs.smart_job_posting.enhance(job, use_llm=use_llm and svcs.groq.available)
@@ -289,6 +290,7 @@ def enhance_job(job_id: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @jobs_bp.get("/<job_id>/candidates")
+@require_auth("recruiter")
 def rank_candidates(job_id: str):
     """
     GET /api/v1/jobs/<job_id>/candidates
@@ -307,11 +309,9 @@ def rank_candidates(job_id: str):
     stage     = request.args.get("stage")
 
     try:
-        from app.repositories import JobRepository
-        job = JobRepository().get_by_id(job_id)
-
-        if not job or getattr(job, "is_deleted", False):
-            return error(f"Job '{job_id}' not found.", code="JOB_NOT_FOUND", status=404)
+        job, err = get_owned_job(job_id)
+        if err:
+            return err
 
         svcs   = get_services()
         result = svcs.candidate_ranking.rank_for_job(
@@ -341,6 +341,7 @@ def rank_candidates(job_id: str):
 
 
 @jobs_bp.get("/<job_id>/skill-gaps")
+@require_auth("recruiter")
 def get_skill_gaps(job_id: str):
     """
     GET /api/v1/jobs/<job_id>/skill-gaps
@@ -349,11 +350,9 @@ def get_skill_gaps(job_id: str):
     most common missing skills, most common matched skills, avg match rate.
     """
     try:
-        from app.repositories import JobRepository
-        job = JobRepository().get_by_id(job_id)
-
-        if not job or getattr(job, "is_deleted", False):
-            return error(f"Job '{job_id}' not found.", code="JOB_NOT_FOUND", status=404)
+        job, err = get_owned_job(job_id)
+        if err:
+            return err
 
         svcs   = get_services()
         gaps   = svcs.candidate_ranking.get_skill_gap_summary(job_id)
