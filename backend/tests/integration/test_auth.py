@@ -98,6 +98,12 @@ class TestRegisterCandidate:
         body = client.post(f"{BASE}/register/candidate", json=payload).get_json()
         assert body["data"]["user"]["email"] == "upper@example.com"
 
+    def test_email_is_stored_trimmed_and_lowercased(self, client, db):
+        from app.repositories import CandidateRepository
+        body = _register_candidate(client, email="  A@B.com ").get_json()
+        assert body["data"]["user"]["email"] == "a@b.com"
+        assert CandidateRepository().get_by_id(body["data"]["user"]["id"]).email == "a@b.com"
+
     def test_duplicate_email_409(self, client, db):
         p = _cand()
         _register_candidate(client, **p)
@@ -188,6 +194,12 @@ class TestRegisterRecruiter:
     def test_sets_refresh_cookie(self, client, db):
         r = _register_recruiter(client)
         assert "refresh_token" in r.headers.get("Set-Cookie", "")
+
+    def test_email_is_stored_trimmed_and_lowercased(self, client, db):
+        from app.repositories import RecruiterRepository
+        body = _register_recruiter(client, email="  A@B.com ").get_json()
+        assert body["data"]["user"]["email"] == "a@b.com"
+        assert RecruiterRepository().get_by_id(body["data"]["user"]["id"]).email == "a@b.com"
 
     def test_duplicate_email_409(self, client, db):
         p = _rec()
