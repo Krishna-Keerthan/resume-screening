@@ -10,6 +10,7 @@ from app.core.security import (
     AuthError,
     assert_can_view_application,
     assert_can_view_score,
+    assert_candidate_applied_to_recruiter,
     assert_owns,
     assert_recruiter_can_view_resume,
 )
@@ -137,3 +138,35 @@ def test_recruiter_cannot_view_a_resume_without_an_application_to_their_job(
     # recruiter A has an application, but it carries résumé A, not B
     with pytest.raises(AuthError):
         assert_recruiter_can_view_resume(resume_b, recruiter_a.id)
+
+
+# ─── Candidate who applied to one of the recruiter's jobs ─────────────────────
+
+def test_recruiter_may_see_a_candidate_who_applied_to_their_job(
+    application_a, candidate_a, recruiter_a
+):
+    assert_candidate_applied_to_recruiter(candidate_a.id, recruiter_a.id)
+
+
+def test_recruiter_may_not_see_a_candidate_who_applied_elsewhere(
+    application_a, candidate_a, recruiter_b
+):
+    with pytest.raises(AuthError) as exc:
+        assert_candidate_applied_to_recruiter(candidate_a.id, recruiter_b.id)
+    assert exc.value.status == 403
+
+
+def test_recruiter_may_not_see_a_candidate_who_never_applied(
+    application_a, candidate_b, recruiter_a
+):
+    with pytest.raises(AuthError):
+        assert_candidate_applied_to_recruiter(candidate_b.id, recruiter_a.id)
+
+
+def test_a_deleted_job_no_longer_links_the_recruiter_to_the_applicant(
+    application_a, job_a, candidate_a, recruiter_a, db
+):
+    job_a.soft_delete()
+    db.session.flush()
+    with pytest.raises(AuthError):
+        assert_candidate_applied_to_recruiter(candidate_a.id, recruiter_a.id)

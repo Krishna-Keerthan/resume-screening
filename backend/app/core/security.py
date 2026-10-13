@@ -31,7 +31,7 @@ Public API
   get_current_user()                      → (user_id, role) from g
   assert_owns(resource, user_id, owner_attr=...)  → raises AuthError(403) if mismatch
   assert_can_view_application / assert_can_view_score
-  assert_recruiter_can_view_resume
+  assert_recruiter_can_view_resume / assert_candidate_applied_to_recruiter
   hash_password(plain)                    → hashed string
   verify_password(plain, hashed)          → bool
 """
@@ -386,6 +386,26 @@ def assert_recruiter_can_view_resume(resume: Any, recruiter_id: str) -> None:
     )
     if linked is None:
         raise _forbidden("Access denied — this resume was not submitted to one of your jobs.")
+
+
+def assert_candidate_applied_to_recruiter(candidate_id: str, recruiter_id: str) -> None:
+    """A recruiter may see a candidate only if that candidate applied to one of the recruiter's jobs."""
+    from app.core.database import db
+    from app.models.application import Application
+    from app.models.job import Job
+
+    linked = (
+        db.session.query(Application.id)
+        .join(Job, Job.id == Application.job_id)
+        .filter(
+            Application.candidate_id == candidate_id,
+            Job.recruiter_id == recruiter_id,
+            Job.is_deleted == False,  # noqa: E712
+        )
+        .first()
+    )
+    if linked is None:
+        raise _forbidden("Access denied — this candidate has not applied to one of your jobs.")
 
 
 def require_ownership(id_param: str = "candidate_id") -> Callable:
