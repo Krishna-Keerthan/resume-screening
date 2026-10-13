@@ -314,6 +314,197 @@ def sample_application(db, app, sample_candidate, sample_job, sample_resume):
     return a
 
 
+# ─── Authenticated actors (Phase 1 harness) ──────────────────────────────────
+
+ACCOUNT_PASSWORD = "SecureP@ss1"
+
+# These fixtures commit (the test session's commit only releases a savepoint):
+# the app rolls the session back after every non-2xx response, which would
+# otherwise discard flushed-but-uncommitted rows between the requests of one test.
+
+
+@pytest.fixture()
+def account_password():
+    """The plaintext password of every candidate_*/recruiter_* fixture."""
+    return ACCOUNT_PASSWORD
+
+
+def _new_candidate(label):
+    from app.core.security import hash_password
+    from app.models.candidate import Candidate
+    c = Candidate(
+        full_name=f"Candidate {label}",
+        email=f"cand-{label}-{uuid.uuid4().hex[:8]}@example.com",
+        password_hash=hash_password(ACCOUNT_PASSWORD),
+        headline="Python Developer",
+        open_to_work=True,
+    )
+    c.save()
+    _db.session.commit()
+    return c
+
+
+def _new_recruiter(label):
+    from app.core.security import hash_password
+    from app.models.recruiter import Recruiter
+    r = Recruiter(
+        full_name=f"Recruiter {label}",
+        email=f"rec-{label}-{uuid.uuid4().hex[:8]}@example.com",
+        password_hash=hash_password(ACCOUNT_PASSWORD),
+        company_name=f"Company {label}",
+    )
+    r.save()
+    _db.session.commit()
+    return r
+
+
+def _new_job(recruiter, title):
+    from app.models.enums import JobStatus, JobType
+    from app.models.job import Job
+    j = Job(
+        title=title,
+        company=recruiter.company_name,
+        description="We need an engineer with solid Python and Flask experience.",
+        experience_years=3.0,
+        location="Remote",
+        job_type=JobType.FULL_TIME,
+        status=JobStatus.ACTIVE,
+        recruiter_id=recruiter.id,
+    )
+    j.required_skills_list = ["Python", "Flask"]
+    j.nice_to_have_skills_list = []
+    j.applicant_count = 0
+    j.save()
+    _db.session.commit()
+    return j
+
+
+def _new_resume(candidate):
+    from app.models.enums import ParseStatus
+    from app.models.resume import Resume
+    r = Resume(
+        candidate_id=candidate.id,
+        filename="resume.pdf",
+        file_path="/tmp/uploads/resume.pdf",
+        file_size_kb=100,
+        file_type="pdf",
+        parse_status=ParseStatus.SUCCESS,
+        total_experience_years=4.0,
+        is_active=True,
+    )
+    r.skills_list = ["Python", "Flask"]
+    r.save()
+    _db.session.commit()
+    return r
+
+
+@pytest.fixture()
+def candidate_a(db):
+    return _new_candidate("a")
+
+
+@pytest.fixture()
+def candidate_b(db):
+    return _new_candidate("b")
+
+
+@pytest.fixture()
+def recruiter_a(db):
+    return _new_recruiter("a")
+
+
+@pytest.fixture()
+def recruiter_b(db):
+    return _new_recruiter("b")
+
+
+@pytest.fixture()
+def job_a(db, recruiter_a):
+    return _new_job(recruiter_a, "Job A")
+
+
+@pytest.fixture()
+def job_b(db, recruiter_b):
+    return _new_job(recruiter_b, "Job B")
+
+
+@pytest.fixture()
+def resume_a(db, candidate_a):
+    return _new_resume(candidate_a)
+
+
+@pytest.fixture()
+def resume_b(db, candidate_b):
+    return _new_resume(candidate_b)
+
+
+@pytest.fixture()
+def application_a(db, candidate_a, resume_a, job_a):
+    """Candidate A's application to recruiter A's job A, using résumé A."""
+    from app.models.application import Application
+    from app.models.enums import ApplicationStage
+    a = Application(
+        candidate_id=candidate_a.id,
+        job_id=job_a.id,
+        resume_id=resume_a.id,
+        stage=ApplicationStage.APPLIED,
+    )
+    a.save()
+    _db.session.commit()
+    return a
+
+
+@pytest.fixture()
+def headers_for(app):
+    """headers_for(user) -> {"Authorization": "Bearer <access token>"}."""
+    from app.core.security import create_tokens
+
+    def _headers(user):
+        role = "recruiter" if type(user).__name__ == "Recruiter" else "candidate"
+        with app.app_context():
+            access, _refresh, _jti = create_tokens(str(user.id), role)
+        return {"Authorization": f"Bearer {access}"}
+    return _headers
+
+
+@pytest.fixture()
+def anon():
+    """Headers for an unauthenticated request."""
+    return {}
+
+
+@pytest.fixture()
+def check_access(client, headers_for, anon):
+    """
+    check_access(method, url, owner, other, json=None, other_status=403)
+
+    Asserts the three-way access contract for one route:
+      no token        -> 401
+      another user    -> other_status (403, or 404 for non-active jobs)
+      owner           -> 2xx
+    The owner is called last, so destructive routes still get the first two
+    checks. Returns the owner's response.
+    """
+    def _check(method, url, owner, other, json=None, other_status=403):
+        def call(headers):
+            return client.open(url, method=method, json=json, headers=headers)
+
+        r = call(anon)
+        assert r.status_code == 401, f"{method} {url} without a token: {r.status_code}"
+
+        r = call(headers_for(other))
+        assert r.status_code == other_status, (
+            f"{method} {url} as another user: {r.status_code}, expected {other_status}"
+        )
+
+        r = call(headers_for(owner))
+        assert 200 <= r.status_code < 300, (
+            f"{method} {url} as owner: {r.status_code} {r.get_data(as_text=True)[:200]}"
+        )
+        return r
+    return _check
+
+
 # ─── Service mock ─────────────────────────────────────────────────────────────
 
 @pytest.fixture()
