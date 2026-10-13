@@ -322,3 +322,22 @@ def test_losing_a_rotation_race_is_treated_as_reuse(client, candidate_a, account
     assert r.status_code == 401
     assert r.get_json()["error"]["error_code"] == "TOKEN_REUSED"
     assert _live_tokens(candidate_a.id) == 0
+
+
+@pytest.mark.parametrize("account", ["candidate", "recruiter"], indirect=True)
+def test_change_password_reuses_the_loaded_account(client, account, headers_for, account_password):
+    from unittest.mock import patch
+
+    from app.repositories.candidate import CandidateRepository
+    from app.repositories.recruiter import RecruiterRepository
+
+    user, role = account
+    repo_cls = CandidateRepository if role == "candidate" else RecruiterRepository
+    original = repo_cls.get_by_id
+
+    with patch.object(repo_cls, "get_by_id", autospec=True, side_effect=original) as spy:
+        r = client.post(f"{BASE}/change-password", headers=headers_for(user),
+                        json={"current_password": account_password, "new_password": "NewSecure@123"})
+
+    assert r.status_code == 200, r.get_json()
+    assert spy.call_count == 1

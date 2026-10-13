@@ -562,17 +562,7 @@ def change_password():
     user_id, role = get_current_user()
 
     try:
-        if role == "candidate":
-            from app.repositories import CandidateRepository
-            repo = CandidateRepository()
-            user = repo.get_by_id(user_id)
-        else:
-            from app.repositories import RecruiterRepository
-            repo = RecruiterRepository()
-            user = repo.get_by_id(user_id)
-
-        if not user:
-            return error("Account not found.", code="USER_NOT_FOUND", status=404)
+        user = current_account()
 
         current_hash = getattr(user, "password_hash", "") or ""
         if not verify_password(data["current_password"], current_hash):
@@ -590,7 +580,7 @@ def change_password():
             )
 
         user.password_hash = hash_password(data["new_password"])
-        repo.save(user)
+        user.save()
 
         from app.models.refresh_token import RefreshToken
         RefreshToken.revoke_all_for_user(user_id)
