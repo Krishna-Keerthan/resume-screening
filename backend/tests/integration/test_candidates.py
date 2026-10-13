@@ -154,7 +154,7 @@ class TestCandidateResumes:
 class TestUploadResume:
     @pytest.fixture(autouse=True)
     def _stub_storage_and_parser(self, mock_services):
-        stored = SimpleNamespace(url="stub://resume.pdf", public_key="stub-key", size_kb=1, provider="stub")
+        stored = SimpleNamespace(key="stub-key", size_kb=1, provider="stub")
         mock_services.resume_parser.parse_bytes.return_value = SimpleNamespace(
             success=False, parse_error="stubbed"
         )
@@ -170,6 +170,16 @@ class TestUploadResume:
         r = self._post(client, candidate_a, headers_for(candidate_a), _pdf())
         assert r.status_code == 201
         assert r.get_json()["data"]["file_name"] == "resume.pdf"
+
+    def test_storage_gets_the_validated_extension_never_the_filename(self, client, db, candidate_a, headers_for):
+        from app.models.resume import Resume
+        r = self._post(client, candidate_a, headers_for(candidate_a), _pdf('../../etc/passwd.pdf'))
+        assert r.status_code == 201, r.get_json()
+        assert self.upload.call_args.kwargs["ext"] == "pdf"
+        assert "passwd" not in repr(self.upload.call_args)
+        row = db.session.get(Resume, r.get_json()["data"]["id"])
+        assert row.storage_key == "stub-key"
+        assert row.file_path == row.storage_key
 
     def test_no_token_401(self, client, db, candidate_a, anon):
         assert self._post(client, candidate_a, anon, _pdf()).status_code == 401

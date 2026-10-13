@@ -273,10 +273,7 @@ def upload_resume(candidate_id: str):
     storage = StorageService.from_config(current_app.config)
 
     try:
-        storage_result = storage.upload(
-            file_bytes=file_bytes,
-            filename=original_filename,
-        )
+        storage_result = storage.upload(file_bytes=file_bytes, ext=ext)
     except StorageError as exc:
         logger.error("Storage upload failed", exc_info=True)
         return error(f"Failed to store resume file: {exc}", code="UPLOAD_FAILED", status=500)
@@ -291,8 +288,8 @@ def upload_resume(candidate_id: str):
     resume.id           = resume_id
     resume.candidate_id = candidate_id
     resume.filename     = original_filename
-    resume.file_path    = storage_result.url        # Cloudinary secure_url or local path
-    resume.storage_key  = storage_result.public_key # Cloudinary public_id or local path
+    resume.storage_key  = storage_result.key  # source of truth
+    resume.file_path    = storage_result.key  # legacy column, kept equal to storage_key
     resume.file_size_kb = storage_result.size_kb
     resume.file_type    = ext
     resume.parse_status = ParseStatus.PENDING
@@ -304,7 +301,7 @@ def upload_resume(candidate_id: str):
     except Exception:
         # Cleanup: delete uploaded file if DB record cannot be created
         try:
-            storage.delete(storage_result.public_key)
+            storage.delete(storage_result.key)
         except Exception:
             pass
         logger.error("Failed to create Resume record", exc_info=True)

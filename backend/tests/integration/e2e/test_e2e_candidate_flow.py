@@ -30,7 +30,7 @@ def _bearer(register_response):
 
 @pytest.fixture()
 def stub_storage_and_parser(mock_services):
-    stored = SimpleNamespace(url="stub://resume.pdf", public_key="stub-key", size_kb=1, provider="stub")
+    stored = SimpleNamespace(key="stub-key", size_kb=1, provider="stub")
     mock_services.resume_parser.parse_bytes.return_value = SimpleNamespace(
         success=False, parse_error="stubbed"
     )
