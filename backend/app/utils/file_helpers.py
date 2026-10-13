@@ -243,7 +243,7 @@ def delete_file(file_path: str) -> None:
     """
     Delete a file from local disk. Silently ignores missing files.
 
-    For Cloudinary deletion use StorageService.delete(public_key) instead.
+    For Cloudinary deletion use StorageService.delete(key) instead.
     """
     try:
         if file_path and os.path.exists(file_path):

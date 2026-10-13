@@ -222,7 +222,7 @@ def upload_resume(candidate_id: str):
          validate_content() — the bytes match the extension (file_helpers)
       2. Read file into memory (bytes) — single read, used for both storage + parse
       3. StorageService.upload(bytes) — Cloudinary (prod) or local disk (dev)
-      4. Create Resume record with storage URL + public_key
+      4. Create Resume record with the storage key
       5. ResumeParserService.parse_bytes(bytes) — no disk I/O on Render
       6. Apply parse results → save → deactivate older resumes
       7. Return serialized resume
