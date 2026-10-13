@@ -331,33 +331,6 @@ def login():
 
 @auth_bp.post("/refresh")
 def refresh():
-
-    # ── TEMPORARY DEBUG — remove after diagnosis ──────────────────────────
-    import sys
-    raw_refresh = request.cookies.get(_COOKIE_NAME)
-    print(f"\n[REFRESH DEBUG]", file=sys.stderr)
-    print(f"  cookies received : {dict(request.cookies)}", file=sys.stderr)
-    print(f"  raw_refresh      : {'PRESENT' if raw_refresh else 'MISSING'}", file=sys.stderr)
-
-    if raw_refresh:
-        try:
-            payload = decode_refresh_token(raw_refresh)
-            print(f"  JWT decode       : OK — jti={payload.get('jti')}", file=sys.stderr)
-
-            from app.models.refresh_token import RefreshToken
-            stored = RefreshToken.get_by_jti(payload.get("jti"))
-            print(f"  DB row found     : {stored is not None}", file=sys.stderr)
-
-            if stored:
-                print(f"  revoked          : {stored.revoked}", file=sys.stderr)
-                print(f"  expires_at       : {stored.expires_at}", file=sys.stderr)
-                print(f"  is_valid()       : {stored.is_valid()}", file=sys.stderr)
-
-        except Exception as e:
-            print(f"  ERROR            : {type(e).__name__}: {e}", file=sys.stderr)
-    print(f"[END REFRESH DEBUG]\n", file=sys.stderr)
-    # ── END TEMPORARY DEBUG ───────────────────────────────────────────────
-
     raw_refresh = request.cookies.get(_COOKIE_NAME)
     if not raw_refresh:
         return error("Refresh token cookie missing. Please log in again.",
