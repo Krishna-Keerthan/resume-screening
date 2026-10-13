@@ -181,6 +181,41 @@ class TestUploadResume:
         assert row.storage_key == "stub-key"
         assert row.file_path == row.storage_key
 
+    def test_text_renamed_to_pdf_is_rejected_before_storage(self, client, db, candidate_a, headers_for):
+        data = {"file": (io.BytesIO(b"just some text"), "resume.pdf", "application/pdf")}
+        r = self._post(client, candidate_a, headers_for(candidate_a), data)
+        assert r.status_code == 415
+        assert r.get_json()["error"]["error_code"] == "INVALID_FILE"
+        self.upload.assert_not_called()
+
+    def test_a_pdf_renamed_to_docx_is_rejected_before_storage(self, client, db, candidate_a, headers_for):
+        mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        data = {"file": (io.BytesIO(b"%PDF-1.4 real pdf"), "resume.docx", mime)}
+        assert self._post(client, candidate_a, headers_for(candidate_a), data).status_code == 415
+        self.upload.assert_not_called()
+
+    def test_a_valid_docx_is_accepted(self, client, db, candidate_a, headers_for):
+        import zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("[Content_Types].xml", "<Types/>")
+            zf.writestr("word/document.xml", "<w:document/>")
+        mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        data = {"file": (io.BytesIO(buf.getvalue()), "resume.docx", mime)}
+        r = self._post(client, candidate_a, headers_for(candidate_a), data)
+        assert r.status_code == 201, r.get_json()
+        assert self.upload.call_args.kwargs["ext"] == "docx"
+
+    def test_a_request_over_the_size_cap_is_413_with_the_error_envelope(
+        self, app, client, db, candidate_a, headers_for, monkeypatch
+    ):
+        monkeypatch.setitem(app.config, "MAX_CONTENT_LENGTH", 2000)
+        data = {"file": (io.BytesIO(b"%PDF-1.4 " + b"x" * 5000), "resume.pdf", "application/pdf")}
+        r = self._post(client, candidate_a, headers_for(candidate_a), data)
+        assert r.status_code == 413
+        assert r.get_json()["error"]["error_code"] == "PAYLOAD_TOO_LARGE"
+        self.upload.assert_not_called()
+
     def test_no_token_401(self, client, db, candidate_a, anon):
         assert self._post(client, candidate_a, anon, _pdf()).status_code == 401
         self.upload.assert_not_called()

@@ -10,9 +10,11 @@ File upload validation utilities.
   - ResumeUploadFailed is the single exception type callers catch.
 """
 
+import io
 import logging
 import os
 import uuid
+import zipfile
 from pathlib import Path
 from typing import Tuple
 
@@ -28,6 +30,65 @@ _ALLOWED_MIME: dict[str, str] = {
     "pdf":  "application/pdf",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
+
+
+DOCX_MAX_ENTRIES = 100
+DOCX_MAX_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
+
+# First bytes of archive formats that must not be nested inside a DOCX.
+_ARCHIVE_SIGNATURES = (b"PK\x03\x04", b"PK\x05\x06", b"\x1f\x8b", b"7z\xbc\xaf\x27\x1c", b"Rar!\x1a\x07")
+_ARCHIVE_SUFFIXES = (".zip", ".docx", ".xlsx", ".pptx", ".jar", ".7z", ".rar", ".gz", ".tgz", ".tar", ".bz2", ".xz")
+
+
+def validate_content(data: bytes, ext: str) -> None:
+    """
+    Check that the bytes really are a PDF or DOCX, whatever the client claimed.
+
+    PDF:  must start with "%PDF-".
+    DOCX: must be a zip with [Content_Types].xml and word/document.xml, at most
+          DOCX_MAX_ENTRIES entries and DOCX_MAX_UNCOMPRESSED_BYTES uncompressed
+          in total, and no nested archive (by entry name or leading bytes).
+
+    Raises:
+        ResumeUploadFailed: On any mismatch or limit violation.
+    """
+    if ext == "pdf":
+        if not data.startswith(b"%PDF-"):
+            raise ResumeUploadFailed("File content is not a PDF.")
+        return
+    if ext != "docx":
+        raise ResumeUploadFailed(f"File type '.{ext}' is not allowed.")
+
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile as exc:
+        raise ResumeUploadFailed("File content is not a DOCX document.") from exc
+
+    with zf:
+        infos = zf.infolist()
+        if len(infos) > DOCX_MAX_ENTRIES:
+            raise ResumeUploadFailed(
+                f"DOCX has too many entries (limit {DOCX_MAX_ENTRIES})."
+            )
+        if sum(i.file_size for i in infos) > DOCX_MAX_UNCOMPRESSED_BYTES:
+            raise ResumeUploadFailed(
+                f"DOCX is too large when uncompressed (limit {DOCX_MAX_UNCOMPRESSED_BYTES // (1024 * 1024)} MB)."
+            )
+        names = {i.filename for i in infos}
+        if "[Content_Types].xml" not in names or "word/document.xml" not in names:
+            raise ResumeUploadFailed("File content is not a DOCX document (no word/document.xml).")
+        for info in infos:
+            if info.is_dir():
+                continue
+            if info.filename.lower().endswith(_ARCHIVE_SUFFIXES):
+                raise ResumeUploadFailed("DOCX must not contain a nested archive.")
+            try:
+                with zf.open(info) as member:
+                    head = member.read(8)
+            except (zipfile.BadZipFile, NotImplementedError, RuntimeError) as exc:
+                raise ResumeUploadFailed("DOCX contains an unreadable entry.") from exc
+            if head.startswith(_ARCHIVE_SIGNATURES):
+                raise ResumeUploadFailed("DOCX must not contain a nested archive.")
 
 
 def validate_upload(

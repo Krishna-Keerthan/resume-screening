@@ -31,7 +31,7 @@ from app.schemas.candidate import UpdateCandidateSchema
 from app.core.database import db
 from app.core.exceptions import ResumeUploadFailed
 from app.repositories.refresh_token import RefreshTokenRepository
-from app.utils.file_helpers import validate_upload
+from app.utils.file_helpers import validate_content, validate_upload
 
 from ._helpers import (
     get_services,
@@ -218,7 +218,8 @@ def upload_resume(candidate_id: str):
     Field: file — PDF or DOCX resume file
 
     Flow:
-      1. validate_upload() — extension + MIME + size checks (file_helpers)
+      1. validate_upload() — extension + MIME + size checks, then
+         validate_content() — the bytes match the extension (file_helpers)
       2. Read file into memory (bytes) — single read, used for both storage + parse
       3. StorageService.upload(bytes) — Cloudinary (prod) or local disk (dev)
       4. Create Resume record with storage URL + public_key
@@ -265,6 +266,11 @@ def upload_resume(candidate_id: str):
     except Exception:
         logger.error("Failed to read uploaded file bytes", exc_info=True)
         return error("Failed to read uploaded file.", code="UPLOAD_FAILED", status=500)
+
+    try:
+        validate_content(file_bytes, ext)
+    except ResumeUploadFailed as exc:
+        return error(str(exc), code="INVALID_FILE", status=415)
 
     original_filename = file.filename  # keep before stream is closed
 
