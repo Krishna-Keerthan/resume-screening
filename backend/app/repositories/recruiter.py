@@ -5,6 +5,8 @@ app/repositories/recruiter.py — Recruiter-specific data access methods.
 
 import logging
 
+from sqlalchemy import func
+
 from app.core.database import db
 from app.models.recruiter import Recruiter
 from app.repositories.base import BaseRepository
@@ -18,9 +20,10 @@ class RecruiterRepository(BaseRepository[Recruiter]):
     model = Recruiter
 
     def get_by_email(self, email: str) -> Recruiter | None:
+        """Fetch a recruiter by email: exact match after trimming and lowercasing; includes deleted rows."""
         return (
             db.session.query(Recruiter)
-            .filter(Recruiter.email.ilike(email.strip()))
+            .filter(func.lower(Recruiter.email) == email.strip().lower())
             .first()
         )
 

@@ -5,6 +5,8 @@ app/repositories/candidate.py — Candidate-specific data access methods.
 import logging
 from typing import Any
 
+from sqlalchemy import func
+
 from app.core.database import db
 from app.models.candidate import Candidate
 from app.repositories.base import BaseRepository
@@ -18,10 +20,10 @@ class CandidateRepository(BaseRepository[Candidate]):
     model = Candidate
 
     def get_by_email(self, email: str) -> Candidate | None:
-        """Fetch a candidate by email address (case-insensitive)."""
+        """Fetch a candidate by email: exact match after trimming and lowercasing; includes deleted rows."""
         return (
             db.session.query(Candidate)
-            .filter(Candidate.email.ilike(email.strip()))
+            .filter(func.lower(Candidate.email) == email.strip().lower())
             .first()
         )
 

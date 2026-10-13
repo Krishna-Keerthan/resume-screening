@@ -110,6 +110,23 @@ class TestRegisterCandidate:
         body = client.post(f"{BASE}/register/candidate", json=p).get_json()
         assert body["error"]["error_code"] == "CANDIDATE_EMAIL_CONFLICT"
 
+    def test_the_same_email_in_a_different_case_is_rejected(self, client, db):
+        _register_candidate(client, email="case.test@example.com")
+        r = client.post(f"{BASE}/register/candidate", json=_cand(email="CASE.Test@Example.COM"))
+        assert r.status_code == 409
+        assert r.get_json()["error"]["error_code"] == "CANDIDATE_EMAIL_CONFLICT"
+
+    def test_the_same_email_is_rejected_when_the_stored_row_has_capitals(self, client, db):
+        from app.models.candidate import Candidate
+        Candidate(full_name="Legacy", email="Legacy.User@Example.com").save()
+        db.session.commit()
+        r = client.post(f"{BASE}/register/candidate", json=_cand(email="legacy.user@example.com"))
+        assert r.status_code == 409
+
+    def test_an_email_with_an_underscore_does_not_clash_with_a_similar_one(self, client, db):
+        _register_candidate(client, email="axb@example.com")
+        assert client.post(f"{BASE}/register/candidate", json=_cand(email="a_b@example.com")).status_code == 201
+
     def test_weak_password_400(self, client, db):
         r = client.post(f"{BASE}/register/candidate", json=_cand(password="weak"))
         assert r.status_code == 400
@@ -199,6 +216,16 @@ class TestRegisterRecruiter:
         body = client.post(f"{BASE}/register/recruiter", json=p).get_json()
         assert body["error"]["error_code"] == "RECRUITER_EMAIL_CONFLICT"
 
+    def test_the_same_email_in_a_different_case_is_rejected(self, client, db):
+        _register_recruiter(client, email="case.test@example.com")
+        r = client.post(f"{BASE}/register/recruiter", json=_rec(email="CASE.Test@Example.COM"))
+        assert r.status_code == 409
+        assert r.get_json()["error"]["error_code"] == "RECRUITER_EMAIL_CONFLICT"
+
+    def test_an_email_with_an_underscore_does_not_clash_with_a_similar_one(self, client, db):
+        _register_recruiter(client, email="axb@example.com")
+        assert client.post(f"{BASE}/register/recruiter", json=_rec(email="a_b@example.com")).status_code == 201
+
     def test_missing_company_name_400(self, client, db):
         p = _rec()
         del p["company_name"]
@@ -270,6 +297,30 @@ class TestLogin:
         _register_candidate(client, **p)
         r = client.post(f"{BASE}/login", json={"email": p["email"], "password": p["password"], "role": "recruiter"})
         assert r.status_code == 401
+
+    @pytest.mark.parametrize("role", ["candidate", "recruiter"])
+    def test_an_account_stored_with_a_mixed_case_email_can_log_in(self, client, db, role):
+        from app.core.security import hash_password
+        from app.models.candidate import Candidate
+        from app.models.recruiter import Recruiter
+        if role == "candidate":
+            Candidate(full_name="Legacy", email="Legacy.User@Example.com",
+                      password_hash=hash_password("SecureP@ss1")).save()
+        else:
+            Recruiter(full_name="Legacy", email="Legacy.User@Example.com", company_name="Co",
+                      password_hash=hash_password("SecureP@ss1")).save()
+        db.session.commit()
+        for typed in ("legacy.user@example.com", "LEGACY.USER@EXAMPLE.COM", " Legacy.User@Example.com "):
+            r = client.post(f"{BASE}/login", json={"email": typed, "password": "SecureP@ss1", "role": role})
+            assert r.status_code == 200, (typed, r.get_json())
+
+    @pytest.mark.parametrize("role", ["candidate", "recruiter"])
+    def test_login_does_not_treat_wildcards_in_the_email_as_patterns(self, client, db, role):
+        register = _register_candidate if role == "candidate" else _register_recruiter
+        register(client, email="axb@example.com")
+        for typed in ("a_b@example.com", "a%b@example.com", "%xb@example.com"):
+            r = client.post(f"{BASE}/login", json={"email": typed, "password": "SecureP@ss1", "role": role})
+            assert r.status_code == 401, typed
 
     def test_case_insensitive_email(self, client, db):
         p = _cand()
