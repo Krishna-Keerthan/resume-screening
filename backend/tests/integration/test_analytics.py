@@ -1,19 +1,22 @@
-
 """
 tests/integration/test_analytics.py
 
 Integration tests for /api/v1/analytics/* endpoints.
-All analytics routes require recruiter_id query param.
+
+Every route is recruiter-only and reports on the authenticated recruiter;
+there is no recruiter_id parameter.
 """
 import pytest
 from unittest.mock import MagicMock
 
 BASE = "/api/v1/analytics"
 
+ROUTES = ["dashboard", "pipeline", "score-distribution", "skills-demand", "top-jobs"]
 
-def _dashboard_mock():
+
+def _dashboard_mock(recruiter_id="r-id"):
     m = MagicMock()
-    m.recruiter_id       = "r-id"
+    m.recruiter_id       = recruiter_id
     m.total_jobs         = 5
     m.active_jobs        = 3
     m.total_applications = 42
@@ -26,111 +29,70 @@ def _dashboard_mock():
     return m
 
 
-class TestDashboard:
-    def test_missing_recruiter_id_400(self, client, db):
-        r = client.get(f"{BASE}/dashboard")
-        assert r.status_code == 400
+@pytest.fixture()
+def stub_analytics(mock_services):
+    analytics = mock_services.recruiter_analytics
+    analytics.get_dashboard.return_value = _dashboard_mock()
+    analytics.get_pipeline.return_value = {"applied": 10, "reviewed": 5, "hired": 2}
+    return analytics
 
-    def test_nonexistent_recruiter_404(self, client, db, mock_services):
-        r = client.get(f"{BASE}/dashboard?recruiter_id=no-such-recruiter")
-        assert r.status_code == 404
 
-    def test_returns_200_for_valid_recruiter(self, client, db, sample_recruiter, mock_services):
-        mock_services.recruiter_analytics.get_dashboard.return_value = _dashboard_mock()
-        r = client.get(f"{BASE}/dashboard?recruiter_id={sample_recruiter.id}")
+@pytest.mark.parametrize("route", ROUTES)
+class TestAccess:
+    def test_access_rules(self, check_access, stub_analytics, route, recruiter_a, candidate_a):
+        check_access("GET", f"{BASE}/{route}", owner=recruiter_a, other=candidate_a)
+
+
+class TestIdentityComesFromTheToken:
+    def test_dashboard_is_built_for_the_caller(
+        self, client, db, stub_analytics, recruiter_a, recruiter_b, headers_for
+    ):
+        r = client.get(f"{BASE}/dashboard?recruiter_id={recruiter_b.id}", headers=headers_for(recruiter_a))
         assert r.status_code == 200
+        stub_analytics.get_dashboard.assert_called_once_with(recruiter_a.id)
 
-    def test_response_shape(self, client, db, sample_recruiter, mock_services):
-        mock_services.recruiter_analytics.get_dashboard.return_value = _dashboard_mock()
-        body = client.get(f"{BASE}/dashboard?recruiter_id={sample_recruiter.id}").get_json()
-        data = body["data"]
-        assert "total_jobs" in data
-        assert "active_jobs" in data
-        assert "total_applications" in data
-        assert "total_hired" in data
-        assert "pipeline_funnel" in data
+    def test_pipeline_is_built_for_the_caller(
+        self, client, db, stub_analytics, recruiter_a, recruiter_b, headers_for
+    ):
+        client.get(f"{BASE}/pipeline?recruiter_id={recruiter_b.id}", headers=headers_for(recruiter_a))
+        stub_analytics.get_pipeline.assert_called_once_with(recruiter_a.id)
+
+    @pytest.mark.parametrize("route", ["score-distribution", "skills-demand", "top-jobs"])
+    def test_dashboard_derived_routes_are_built_for_the_caller(
+        self, client, db, stub_analytics, route, recruiter_a, recruiter_b, headers_for
+    ):
+        client.get(f"{BASE}/{route}?recruiter_id={recruiter_b.id}", headers=headers_for(recruiter_a))
+        stub_analytics.get_dashboard.assert_called_once_with(recruiter_a.id)
+
+
+class TestDashboard:
+    def test_response_shape(self, client, db, stub_analytics, recruiter_a, headers_for):
+        data = client.get(f"{BASE}/dashboard", headers=headers_for(recruiter_a)).get_json()["data"]
+        for key in ("total_jobs", "active_jobs", "total_applications", "total_hired", "pipeline_funnel"):
+            assert key in data
 
 
 class TestPipeline:
-    def test_missing_recruiter_id_400(self, client, db):
-        assert client.get(f"{BASE}/pipeline").status_code == 400
-
-    @pytest.mark.xfail(reason="Phase 1: auth", strict=False)
-    def test_nonexistent_recruiter_404(self, client, db, mock_services):
-        assert client.get(f"{BASE}/pipeline?recruiter_id=nobody").status_code == 404
-
-    def test_returns_200(self, client, db, sample_recruiter, mock_services):
-        mock_services.recruiter_analytics.get_pipeline.return_value = {
-            "applied": 10, "reviewed": 5, "hired": 2
-        }
-        r = client.get(f"{BASE}/pipeline?recruiter_id={sample_recruiter.id}")
-        assert r.status_code == 200
-
-    def test_returns_stage_breakdown(self, client, db, sample_recruiter, mock_services):
-        mock_services.recruiter_analytics.get_pipeline.return_value = {
-            "applied": 10, "reviewed": 5, "hired": 2
-        }
-        body = client.get(f"{BASE}/pipeline?recruiter_id={sample_recruiter.id}").get_json()
+    def test_returns_stage_breakdown(self, client, db, stub_analytics, recruiter_a, headers_for):
+        body = client.get(f"{BASE}/pipeline", headers=headers_for(recruiter_a)).get_json()
         assert body["data"] == {"applied": 10, "reviewed": 5, "hired": 2}
 
 
 class TestScoreDistribution:
-    def test_missing_recruiter_id_400(self, client, db):
-        assert client.get(f"{BASE}/score-distribution").status_code == 400
-
-    @pytest.mark.xfail(reason="Phase 1: auth", strict=False)
-    def test_nonexistent_recruiter_404(self, client, db, mock_services):
-        assert client.get(f"{BASE}/score-distribution?recruiter_id=nobody").status_code == 404
-
-    def test_returns_200(self, client, db, sample_recruiter, mock_services):
-        mock_services.recruiter_analytics.get_dashboard.return_value = _dashboard_mock()
-        r = client.get(f"{BASE}/score-distribution?recruiter_id={sample_recruiter.id}")
-        assert r.status_code == 200
-
-    def test_score_tiers_present(self, client, db, sample_recruiter, mock_services):
-        mock_services.recruiter_analytics.get_dashboard.return_value = _dashboard_mock()
-        body = client.get(
-            f"{BASE}/score-distribution?recruiter_id={sample_recruiter.id}"
-        ).get_json()
-        dist = body["data"]
-        for tier in ["excellent", "good", "fair", "weak"]:
+    def test_score_tiers_present(self, client, db, stub_analytics, recruiter_a, headers_for):
+        dist = client.get(f"{BASE}/score-distribution", headers=headers_for(recruiter_a)).get_json()["data"]
+        for tier in ("excellent", "good", "fair", "weak"):
             assert tier in dist
 
 
 class TestSkillsDemand:
-    def test_missing_recruiter_id_400(self, client, db):
-        assert client.get(f"{BASE}/skills-demand").status_code == 400
-
-    def test_returns_200(self, client, db, sample_recruiter, mock_services):
-        mock_services.recruiter_analytics.get_dashboard.return_value = _dashboard_mock()
-        r = client.get(f"{BASE}/skills-demand?recruiter_id={sample_recruiter.id}")
-        assert r.status_code == 200
-
-    def test_returns_skills_list(self, client, db, sample_recruiter, mock_services):
-        mock_services.recruiter_analytics.get_dashboard.return_value = _dashboard_mock()
-        body = client.get(
-            f"{BASE}/skills-demand?recruiter_id={sample_recruiter.id}"
-        ).get_json()
-        assert "skills" in body["data"]
-        assert isinstance(body["data"]["skills"], list)
-
-    def test_top_n_param(self, client, db, sample_recruiter, mock_services):
-        mock_services.recruiter_analytics.get_dashboard.return_value = _dashboard_mock()
-        r = client.get(f"{BASE}/skills-demand?recruiter_id={sample_recruiter.id}&top_n=5")
-        assert r.status_code == 200
+    def test_returns_skills_list(self, client, db, stub_analytics, recruiter_a, headers_for):
+        body = client.get(f"{BASE}/skills-demand?top_n=5", headers=headers_for(recruiter_a)).get_json()
+        assert body["data"]["skills"] == [{"skill": "Python", "count": 30}]
+        assert body["data"]["recruiter_id"] == recruiter_a.id
 
 
 class TestTopJobs:
-    def test_missing_recruiter_id_400(self, client, db):
-        assert client.get(f"{BASE}/top-jobs").status_code == 400
-
-    def test_returns_200(self, client, db, sample_recruiter, mock_services):
-        mock_services.recruiter_analytics.get_top_jobs.return_value = []
-        r = client.get(f"{BASE}/top-jobs?recruiter_id={sample_recruiter.id}")
-        assert r.status_code == 200
-
-    def test_data_is_list(self, client, db, sample_recruiter, mock_services):
-        mock_services.recruiter_analytics.get_top_jobs.return_value = []
-        body = client.get(
-            f"{BASE}/top-jobs?recruiter_id={sample_recruiter.id}"
-        ).get_json()
+    def test_data_is_list(self, client, db, stub_analytics, recruiter_a, headers_for):
+        body = client.get(f"{BASE}/top-jobs", headers=headers_for(recruiter_a)).get_json()
+        assert body["data"]["jobs"] == []
