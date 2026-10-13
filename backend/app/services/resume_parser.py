@@ -59,6 +59,7 @@ import logging
 import os
 import re
 import tempfile
+import threading
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -290,7 +291,15 @@ class ResumeParserService:
     Multi-format resume parser.
 
     Stateless — safe to share across threads / requests.
+
+    Args:
+        parse_timeout_seconds: parse_bytes gives up after this long.
+        max_text_chars:        extracted text is truncated to this length.
     """
+
+    def __init__(self, parse_timeout_seconds: float = 30, max_text_chars: int = 200_000):
+        self._timeout = parse_timeout_seconds
+        self._max_text_chars = max_text_chars
 
     def parse(self, file_path: str) -> ParseResult:
         """
@@ -323,28 +332,45 @@ class ResumeParserService:
                 parse_error="No text could be extracted from the file.",
             )
 
-        return self._parse_text(raw_text)
+        return self._parse_text(raw_text[: self._max_text_chars])
 
     def parse_bytes(self, data: bytes, filename: str) -> ParseResult:
         """
         Parse a resume from raw bytes (e.g., uploaded file data).
 
-        Writes to a temp file, parses, then cleans up.
+        Writes to a temp file, parses, then cleans up. Gives up after the
+        configured timeout and returns a failed ParseResult; the abandoned
+        worker thread finishes (and removes its temp file) on its own, since
+        a thread running native extraction code cannot be interrupted.
         """
         ext = os.path.splitext(filename)[1].lower()
-        tmp_path = None
-        try:
-            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-                tmp.write(data)
-                tmp_path = tmp.name
-            result = self.parse(tmp_path)
-        finally:
-            if tmp_path:
-                try:
-                    os.unlink(tmp_path)
-                except Exception:
-                    pass
-        return result
+        outcome: dict = {}
+
+        def work() -> None:
+            tmp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+                    tmp.write(data)
+                    tmp_path = tmp.name
+                outcome["result"] = self.parse(tmp_path)
+            except BaseException as exc:  # re-raised in the caller's thread
+                outcome["error"] = exc
+            finally:
+                if tmp_path:
+                    try:
+                        os.unlink(tmp_path)
+                    except Exception:
+                        pass
+
+        worker = threading.Thread(target=work, name="resume-parse", daemon=True)
+        worker.start()
+        worker.join(self._timeout)
+        if worker.is_alive():
+            logger.warning("Resume parse timed out after %ss", self._timeout)
+            return ParseResult(parse_error=f"Parsing timed out after {self._timeout:g} seconds.")
+        if "error" in outcome:
+            raise outcome["error"]
+        return outcome["result"]
 
     # ── PDF extraction ────────────────────────────────────────────────────────
 

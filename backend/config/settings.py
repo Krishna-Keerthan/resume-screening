@@ -93,6 +93,8 @@ class BaseConfig:
     UPLOAD_FOLDER:      str = os.getenv("UPLOAD_FOLDER", "uploads/")
     MAX_CONTENT_LENGTH: int = _int_env("MAX_UPLOAD_MB", 10) * 1024 * 1024
     MAX_UPLOAD_MB:      int = _int_env("MAX_UPLOAD_MB", 10)
+    PARSE_TIMEOUT_SECONDS: int = _int_env("PARSE_TIMEOUT_SECONDS", 30)
+    MAX_PARSED_TEXT_CHARS: int = _int_env("MAX_PARSED_TEXT_CHARS", 200_000)
     ALLOWED_EXTENSIONS: set = set(_list_env("ALLOWED_EXTENSIONS", "pdf,docx"))
 
     # ── File storage (StorageService.from_config) ─────────────────────────────

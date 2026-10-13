@@ -109,7 +109,10 @@ class ServiceFactory:
         )
 
         # ── Parsing ────────────────────────────────────────────────────────────
-        resume_parser = ResumeParserService()
+        resume_parser = ResumeParserService(
+            parse_timeout_seconds=cfg("PARSE_TIMEOUT_SECONDS", 30),
+            max_text_chars=cfg("MAX_PARSED_TEXT_CHARS", 200_000),
+        )
         job_parser    = JobParserService()
 
         # ── Scoring components ─────────────────────────────────────────────────
