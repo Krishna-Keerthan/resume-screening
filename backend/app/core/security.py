@@ -381,7 +381,11 @@ def assert_recruiter_can_view_resume(resume: Any, recruiter_id: str) -> None:
     linked = (
         db.session.query(Application.id)
         .join(Job, Job.id == Application.job_id)
-        .filter(Application.resume_id == resume.id, Job.recruiter_id == recruiter_id)
+        .filter(
+            Application.resume_id == resume.id,
+            Job.recruiter_id == recruiter_id,
+            Job.is_deleted == False,  # noqa: E712
+        )
         .first()
     )
     if linked is None:

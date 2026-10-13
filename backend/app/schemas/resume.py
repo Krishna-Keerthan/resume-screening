@@ -11,7 +11,6 @@ class ResumeQuerySchema(BaseSchema):
     """Validates GET /api/v1/resumes query params."""
     page         = fields.Integer(load_default=1,  validate=validate.Range(min=1))
     limit        = fields.Integer(load_default=20, validate=validate.Range(min=1, max=100))
-    candidate_id = fields.String(load_default=None)
     parse_status = fields.String(load_default=None, validate=validate.OneOf(["pending", "success", "failed"]))
 
 

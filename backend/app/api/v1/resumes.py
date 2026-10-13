@@ -3,36 +3,35 @@ app/api/v1/resumes.py
 
 Resume resource — management, parsing status, AI analysis.
 
-Changes vs previous version:
-  - analyze_resume() with force_reparse=True now downloads bytes from
-    storage_service.download_bytes(resume.file_path) instead of reading
-    from local disk. Works on Render (ephemeral fs) + Cloudinary.
-  - set_active_resume() unchanged in logic but imports are cleaned up.
-  - generate_summary() and rewrite_suggestions() unchanged.
-  - All other routes unchanged.
+Every route needs a token. A resume belongs to its candidate; a recruiter may
+only read (GET /resumes/<id>) one that was submitted to their job.
 
 Routes:
-  GET    /resumes/                    — paginated list
-  GET    /resumes/<id>                — get single resume
-  DELETE /resumes/<id>                — soft-delete resume
-  POST   /resumes/<id>/analyze        — run full AI analysis
-  GET    /resumes/<id>/score-preview  — preview ATS score (no save)
-  PATCH  /resumes/<id>/set-active     — set as active resume
-  POST   /resumes/<id>/generate-summary
-  POST   /resumes/<id>/rewrite-suggestions
+  GET    /resumes/                    — the caller's resumes             [candidate]
+  GET    /resumes/<id>                — get single resume                [owner, or the job's recruiter]
+  DELETE /resumes/<id>                — soft-delete resume               [owner]
+  POST   /resumes/<id>/analyze        — run full AI analysis             [owner]
+  GET    /resumes/<id>/score-preview  — preview ATS score (no save)      [owner]
+  PATCH  /resumes/<id>/set-active     — set as active resume             [owner]
+  POST   /resumes/<id>/generate-summary                                  [owner]
+  POST   /resumes/<id>/rewrite-suggestions                               [owner]
 """
 
 import logging
 import json
 
-from flask import Blueprint, current_app, request
+from flask import Blueprint, current_app, g, request
 
 from app.core.responses import error, no_content, success, success_list
+from app.core.security import require_auth
 from app.schemas.resume import AnalyzeResumeSchema, ResumeQuerySchema
 from app.services.ats_scorer import scorer_inputs
 
 from ._helpers import (
+    get_active_job,
+    get_owned_resume,
     get_services,
+    get_viewable_resume,
     parse_body,
     parse_query,
     serialize_resume,
@@ -48,10 +47,11 @@ resumes_bp = Blueprint("resumes", __name__)
 # ─────────────────────────────────────────────────────────────────────────────
 
 @resumes_bp.get("/")
+@require_auth("candidate")
 def list_resumes():
     """
     GET /api/v1/resumes/
-    Query params: page, limit, candidate_id, parse_status
+    The caller's own resumes. Query params: page, limit, parse_status
     """
     params, err = parse_query(ResumeQuerySchema)
     if err:
@@ -61,19 +61,13 @@ def list_resumes():
         from app.repositories import ResumeRepository
         repo = ResumeRepository()
 
-        if params.get("candidate_id"):
-            items, total = repo.list_by_candidate(
-                candidate_id=params["candidate_id"],
-                active_only=False,
-                page=params["page"],
-                limit=params["limit"],
-            )
-        else:
-            items, total = repo.list_all(
-                page=params["page"],
-                limit=params["limit"],
-                parse_status=params.get("parse_status"),
-            )
+        items, total = repo.list_by_candidate(
+            candidate_id=g.jwt_user_id,
+            active_only=False,
+            parse_status=params.get("parse_status"),
+            page=params["page"],
+            limit=params["limit"],
+        )
 
         return success_list(
             data=[serialize_resume(r) for r in items],
@@ -92,18 +86,13 @@ def list_resumes():
 # ─────────────────────────────────────────────────────────────────────────────
 
 @resumes_bp.get("/<resume_id>")
+@require_auth("candidate", "recruiter")
 def get_resume(resume_id: str):
     """GET /api/v1/resumes/<resume_id>"""
     try:
-        from app.repositories import ResumeRepository
-        resume = ResumeRepository().get_by_id(resume_id)
-
-        if not resume or getattr(resume, "is_deleted", False):
-            return error(
-                f"Resume '{resume_id}' not found.",
-                code="RESUME_NOT_FOUND",
-                status=404,
-            )
+        resume, err = get_viewable_resume(resume_id)
+        if err:
+            return err
 
         return success(data=serialize_resume(resume), message="Resume retrieved.")
     except Exception:
@@ -116,6 +105,7 @@ def get_resume(resume_id: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @resumes_bp.delete("/<resume_id>")
+@require_auth("candidate")
 def delete_resume(resume_id: str):
     """
     DELETE /api/v1/resumes/<resume_id>
@@ -126,14 +116,9 @@ def delete_resume(resume_id: str):
     try:
         from app.repositories import ResumeRepository
         repo   = ResumeRepository()
-        resume = repo.get_by_id(resume_id)
-
-        if not resume or getattr(resume, "is_deleted", False):
-            return error(
-                f"Resume '{resume_id}' not found.",
-                code="RESUME_NOT_FOUND",
-                status=404,
-            )
+        resume, err = get_owned_resume(resume_id)
+        if err:
+            return err
 
         # Best-effort: delete file from storage backend
         storage_key = getattr(resume, "storage_key", None) or getattr(resume, "file_path", None)
@@ -163,6 +148,7 @@ def delete_resume(resume_id: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @resumes_bp.post("/<resume_id>/analyze")
+@require_auth("candidate")
 def analyze_resume(resume_id: str):
     """
     POST /api/v1/resumes/<resume_id>/analyze
@@ -189,17 +175,11 @@ def analyze_resume(resume_id: str):
     force_refresh = data.get("force_refresh", False)
 
     try:
-        from app.repositories import ResumeRepository
         from app.models.enums import ParseStatus
 
-        resume = ResumeRepository().get_by_id(resume_id)
-
-        if not resume or getattr(resume, "is_deleted", False):
-            return error(
-                f"Resume '{resume_id}' not found.",
-                code="RESUME_NOT_FOUND",
-                status=404,
-            )
+        resume, err = get_owned_resume(resume_id)
+        if err:
+            return err
 
         # ── If force_refresh: re-parse from storage bytes ──────────────────────
         # ResumeAnalysisService.analyse() calls parser.parse(resume.file_path)
@@ -311,6 +291,7 @@ def analyze_resume(resume_id: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @resumes_bp.get("/<resume_id>/score-preview")
+@require_auth("candidate")
 def score_preview(resume_id: str):
     """
     GET /api/v1/resumes/<resume_id>/score-preview?job_id=<id>
@@ -321,15 +302,13 @@ def score_preview(resume_id: str):
         return error("job_id query parameter is required.", code="MISSING_PARAM", status=400)
 
     try:
-        from app.repositories import ResumeRepository, JobRepository
+        resume, err = get_owned_resume(resume_id)
+        if err:
+            return err
 
-        resume = ResumeRepository().get_by_id(resume_id)
-        if not resume or getattr(resume, "is_deleted", False):
-            return error("Resume not found.", code="RESUME_NOT_FOUND", status=404)
-
-        job = JobRepository().get_by_id(job_id)
-        if not job or getattr(job, "is_deleted", False):
-            return error("Job not found.", code="JOB_NOT_FOUND", status=404)
+        job, err = get_active_job(job_id)
+        if err:
+            return err
 
         svcs = get_services()
 
@@ -392,6 +371,7 @@ def score_preview(resume_id: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @resumes_bp.patch("/<resume_id>/set-active")
+@require_auth("candidate")
 def set_active_resume(resume_id: str):
     """
     PATCH /api/v1/resumes/<resume_id>/set-active
@@ -399,21 +379,15 @@ def set_active_resume(resume_id: str):
     Only successfully parsed resumes can be set active.
     """
     try:
-        from app.repositories import ResumeRepository
         from app.core.database import db
+        from app.core.security import current_account
         from app.models.resume import Resume
-        from app.core.security import get_current_user
         from app.models.enums import ParseStatus
 
-        user_id, _ = get_current_user()
-        repo        = ResumeRepository()
-        resume      = repo.get_by_id(resume_id)
-
-        if not resume or getattr(resume, "is_deleted", False):
-            return error(f"Resume '{resume_id}' not found.", code="RESUME_NOT_FOUND", status=404)
-
-        if str(resume.candidate_id) != str(user_id):
-            return error("Access denied.", code="FORBIDDEN", status=403)
+        resume, err = get_owned_resume(resume_id)
+        if err:
+            return err
+        user_id = current_account().id
 
         # Normalise parse_status comparison — handle both enum and string values
         parse_status_val = getattr(resume.parse_status, "value", str(resume.parse_status))
@@ -451,20 +425,13 @@ def set_active_resume(resume_id: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @resumes_bp.post("/<resume_id>/generate-summary")
+@require_auth("candidate")
 def generate_summary(resume_id: str):
     """POST /api/v1/resumes/<resume_id>/generate-summary"""
-    from app.core.security import get_current_user
-    user_id, _ = get_current_user()
-
     try:
-        from app.repositories import ResumeRepository
-        resume = ResumeRepository().get_by_id(resume_id)
-
-        if not resume or getattr(resume, "is_deleted", False):
-            return error("Resume not found.", code="RESUME_NOT_FOUND", status=404)
-
-        if str(resume.candidate_id) != str(user_id):
-            return error("Access denied.", code="FORBIDDEN", status=403)
+        resume, err = get_owned_resume(resume_id)
+        if err:
+            return err
 
         svcs = get_services()
         if not svcs.groq.available:
@@ -501,10 +468,9 @@ def generate_summary(resume_id: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @resumes_bp.post("/<resume_id>/rewrite-suggestions")
+@require_auth("candidate")
 def rewrite_suggestions(resume_id: str):
     """POST /api/v1/resumes/<resume_id>/rewrite-suggestions  Body: { job_id }"""
-    from app.core.security import get_current_user
-    user_id, _ = get_current_user()
     body   = request.get_json(silent=True) or {}
     job_id = body.get("job_id")
 
@@ -512,14 +478,12 @@ def rewrite_suggestions(resume_id: str):
         return error("job_id is required.", code="MISSING_PARAM", status=400)
 
     try:
-        from app.repositories import ResumeRepository, JobRepository
-        resume = ResumeRepository().get_by_id(resume_id)
-        job    = JobRepository().get_by_id(job_id)
-
-        if not resume or str(resume.candidate_id) != str(user_id):
-            return error("Resume not found.", code="RESUME_NOT_FOUND", status=404)
-        if not job:
-            return error("Job not found.", code="JOB_NOT_FOUND", status=404)
+        resume, err = get_owned_resume(resume_id)
+        if err:
+            return err
+        job, err = get_active_job(job_id)
+        if err:
+            return err
 
         svcs = get_services()
         if not svcs.groq.available:

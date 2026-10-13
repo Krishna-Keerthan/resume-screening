@@ -6,6 +6,8 @@ Shared utilities used by all route handlers.
 Provides:
   - get_owned_job()        — load a job the authenticated recruiter owns
   - get_viewable_application() — load an application the user may act on
+  - get_owned_resume() / get_viewable_resume() — load a resume the user owns / may read
+  - get_active_job()       — load a job that is open for applications
   - get_services()         — fetch Services dataclass from app.extensions
   - parse_body()           — load + validate JSON body via Marshmallow schema
   - parse_query()          — load + validate query params via Marshmallow schema
@@ -90,6 +92,68 @@ def get_viewable_application(application_id: str):
     except AuthError as exc:
         return None, error(str(exc), code=exc.code, status=exc.status)
     return application, None
+
+
+def get_owned_resume(resume_id: str):
+    """
+    Load a resume owned by the authenticated candidate.
+
+    Returns (resume, None), or (None, error_response): 404 if it does not
+    exist or is deleted, 403 if it belongs to another candidate.
+    """
+    from app.core.security import AuthError, assert_owns, current_account
+    from app.repositories import ResumeRepository
+
+    resume = ResumeRepository().get_by_id(resume_id)
+    if not resume or resume.is_deleted:
+        return None, error(f"Resume '{resume_id}' not found.", code="RESUME_NOT_FOUND", status=404)
+
+    try:
+        assert_owns(resume, current_account().id, owner_attr="candidate_id",
+                    message="Access denied — this resume belongs to another candidate.")
+    except AuthError as exc:
+        return None, error(str(exc), code=exc.code, status=exc.status)
+    return resume, None
+
+
+def get_viewable_resume(resume_id: str):
+    """
+    Load a resume the authenticated user may read: its candidate, or a
+    recruiter to whose job it was submitted through an application.
+
+    Returns (resume, None), or (None, error_response): 404 / 403.
+    """
+    from app.core.security import AuthError, assert_recruiter_can_view_resume
+    from app.repositories import ResumeRepository
+
+    if g.jwt_role == "candidate":
+        return get_owned_resume(resume_id)
+
+    resume = ResumeRepository().get_by_id(resume_id)
+    if not resume or resume.is_deleted:
+        return None, error(f"Resume '{resume_id}' not found.", code="RESUME_NOT_FOUND", status=404)
+    try:
+        assert_recruiter_can_view_resume(resume, g.jwt_user_id)
+    except AuthError as exc:
+        return None, error(str(exc), code=exc.code, status=exc.status)
+    return resume, None
+
+
+def get_active_job(job_id: str):
+    """
+    Load a job that is open for applications.
+
+    Returns (job, None), or (None, error_response): 404 if it does not
+    exist, is deleted or is not active, so drafts and closed postings are
+    not revealed (D7).
+    """
+    from app.models.enums import JobStatus
+    from app.repositories import JobRepository
+
+    job = JobRepository().get_by_id(job_id)
+    if job and not job.is_deleted and getattr(job.status, "value", job.status) == JobStatus.ACTIVE.value:
+        return job, None
+    return None, error(f"Job '{job_id}' not found.", code="JOB_NOT_FOUND", status=404)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

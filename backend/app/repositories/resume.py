@@ -34,6 +34,7 @@ class ResumeRepository(BaseRepository[Resume]):
         self,
         candidate_id: str,
         active_only: bool = False,
+        parse_status: str | None = None,
         page: int = 1,
         limit: int = 20,
     ) -> tuple[list[Resume], int]:
@@ -47,6 +48,8 @@ class ResumeRepository(BaseRepository[Resume]):
         )
         if active_only:
             query = query.filter(Resume.is_active == True)  # noqa: E712
+        if parse_status:
+            query = query.filter(Resume.parse_status == parse_status)
 
         total = query.count()
         items = (
@@ -125,26 +128,6 @@ class ResumeRepository(BaseRepository[Resume]):
             .limit(limit)
             .all()
         )
-
-    def list_all(
-        self,
-        page: int = 1,
-        limit: int = 20,
-        parse_status: str | None = None,
-    ) -> tuple[list[Resume], int]:
-        """All non-deleted resumes with optional parse_status filter."""
-        query = db.session.query(Resume).filter(Resume.is_deleted == False)  # noqa: E712
-        if parse_status:
-            query = query.filter(Resume.parse_status == parse_status)
-        total = query.count()
-        items = (
-            query
-            .order_by(Resume.created_at.desc())
-            .offset((page - 1) * limit)
-            .limit(limit)
-            .all()
-        )
-        return items, total
 
     # ─────────────────────────────────────────────────────────────────────────
     # Parse status helpers

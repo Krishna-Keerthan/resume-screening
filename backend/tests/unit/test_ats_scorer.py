@@ -43,11 +43,12 @@ class TestPreviewMatchesSavedScore:
         mock_services.ats_scorer = ats_scorer
         mock_services.explainability = ats_scorer._expl
 
-    def test_resume_score_preview(self, client, ats_scorer, mock_services,
-                                  sample_resume, sample_job):
+    def test_resume_score_preview(self, client, ats_scorer, mock_services, headers_for,
+                                  sample_candidate, sample_resume, sample_job):
         sample_resume.oov_skills_list_parsed = ["Flask-RESTX"]
         self._use_real_scorer(mock_services, ats_scorer)
-        r = client.get(f"/api/v1/resumes/{sample_resume.id}/score-preview?job_id={sample_job.id}")
+        r = client.get(f"/api/v1/resumes/{sample_resume.id}/score-preview?job_id={sample_job.id}",
+                       headers=headers_for(sample_candidate))
         assert r.status_code == 200
         saved = ats_scorer.score_resume_job(sample_resume, sample_job, use_llm=False)
         assert r.get_json()["data"]["final_score"] == saved.final_score
