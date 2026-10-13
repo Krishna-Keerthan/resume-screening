@@ -41,22 +41,30 @@ class TestServiceStatus:
     def test_returns_200(self, client):
         assert client.get("/api/v1/health/services").status_code == 200
 
-    def test_has_all_three_services(self, client):
-        body = client.get("/api/v1/health/services").get_json()
-        svcs = body["data"]["services"]
-        assert "database" in svcs
-        assert "embedding" in svcs
-        assert "groq" in svcs
+    def test_reports_availability_for_database_search_and_ai(self, client):
+        svcs = client.get("/api/v1/health/services").get_json()["data"]["services"]
+        assert set(svcs) == {"database", "semantic_search", "ai_assistance"}
+
+    def test_every_service_value_is_a_bare_boolean(self, client):
+        data = client.get("/api/v1/health/services").get_json()["data"]
+        assert all(isinstance(v, bool) for v in data["services"].values())
+        assert isinstance(data["all_optional_services_available"], bool)
 
     def test_database_available_true(self, client):
-        body = client.get("/api/v1/health/services").get_json()
-        assert body["data"]["services"]["database"]["available"] is True
+        assert client.get("/api/v1/health/services").get_json()["data"]["services"]["database"] is True
 
-    def test_each_service_has_available_and_description(self, client):
-        body = client.get("/api/v1/health/services").get_json()
-        for svc in body["data"]["services"].values():
-            assert "available" in svc
-            assert "description" in svc
+    def test_availability_follows_the_service_container(self, client, mock_services):
+        mock_services.embedding.available = True
+        mock_services.groq.available = False
+        data = client.get("/api/v1/health/services").get_json()["data"]
+        assert data["services"]["semantic_search"] is True
+        assert data["services"]["ai_assistance"] is False
+        assert data["all_optional_services_available"] is False
+
+    def test_response_names_no_component_or_version(self, client):
+        text = client.get("/api/v1/health/services").get_data(as_text=True).lower()
+        for word in ("groq", "llama", "minilm", "sentence", "transformers", "postgres", "sqlite"):
+            assert word not in text
 
 
 class TestErrorHandlers:

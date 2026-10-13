@@ -96,10 +96,11 @@ def service_status():
     """
     GET /api/v1/health/services
 
-    Returns per-service availability:
-      - embedding:  whether sentence-transformers model is loaded
-      - groq:       whether Groq API key is configured + client is live
-      - database:   connection pool status
+    Returns availability booleans only, so the endpoint does not reveal which
+    components or versions run behind it:
+      - database:        the database answers a query
+      - semantic_search: the embedding model is loaded
+      - ai_assistance:   the LLM client is configured and live
     """
     svcs = current_app.extensions.get("services")
 
@@ -123,9 +124,9 @@ def service_status():
     return success(
         data={
             "services": {
-                "database":   {"available": db_ok,      "description": "PostgreSQL / SQLite connection"},
-                "embedding":  {"available": embedding_ok,"description": "Sentence-transformers (MiniLM)"},
-                "groq":       {"available": groq_ok,     "description": "Groq LLM API (Llama 3.1)"},
+                "database":        db_ok,
+                "semantic_search": embedding_ok,
+                "ai_assistance":   groq_ok,
             },
             "all_optional_services_available": embedding_ok and groq_ok,
         },
