@@ -101,34 +101,31 @@ class RecruiterAnalyticsService:
     def get_job_performance(self, job_id: str) -> dict:
         """
         Return performance metrics for a single job posting. The caller is
-        responsible for checking that the job belongs to the requester.
+        responsible for checking that the job exists and belongs to the
+        requester. Repository errors propagate.
 
         Returns:
-            {applicant_count, avg_score, stage_breakdown, top_skills_matched}
+            {job_id, title, applicant_count, stage_breakdown, avg_ats_score, quality_score}
         """
-        try:
-            job = self._job_repo.get_by_id(job_id)
-            if not job:
-                return {}
-
-            stage_counts = self._app_repo.count_by_stage(job_id=job_id)
-            top_scores   = self._ats_repo.get_top_for_job(job_id=job_id, top_n=50)
-
-            avg_score = 0.0
-            if top_scores:
-                avg_score = round(sum(s.final_score for s in top_scores) / len(top_scores), 3)
-
-            return {
-                "job_id":          job_id,
-                "title":           job.title,
-                "applicant_count": job.applicant_count,
-                "stage_breakdown": stage_counts,
-                "avg_ats_score":   avg_score,
-                "quality_score":   job.quality_score,
-            }
-        except Exception as exc:
-            logger.warning("Job performance failed: %s", exc)
+        job = self._job_repo.get_by_id(job_id)
+        if not job:
             return {}
+
+        stage_counts = self._app_repo.count_by_stage(job_id=job_id)
+        top_scores   = self._ats_repo.get_top_for_job(job_id=job_id, top_n=50)
+
+        avg_score = 0.0
+        if top_scores:
+            avg_score = round(sum(s.final_score for s in top_scores) / len(top_scores), 3)
+
+        return {
+            "job_id":          job_id,
+            "title":           job.title,
+            "applicant_count": job.applicant_count,
+            "stage_breakdown": stage_counts,
+            "avg_ats_score":   avg_score,
+            "quality_score":   job.quality_score,
+        }
 
     # ── Internal ──────────────────────────────────────────────────────────────
 

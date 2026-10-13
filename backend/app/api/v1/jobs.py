@@ -404,11 +404,16 @@ def get_job_performance(job_id: str):
         svcs = get_services()
         perf = svcs.recruiter_analytics.get_job_performance(job_id=job.id)
 
-        if not perf:
-            return error("Failed to retrieve job performance.", code="INTERNAL_ERROR", status=500)
-
         return success(
-            data=perf,
+            data={
+                "job_id":          job.id,
+                "title":           job.title,
+                "applicant_count": 0,
+                "stage_breakdown": {},
+                "avg_ats_score":   0.0,
+                "quality_score":   job.quality_score,
+                **perf,
+            },
             message="Job performance metrics retrieved.",
         )
     except Exception:

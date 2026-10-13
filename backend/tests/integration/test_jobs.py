@@ -346,7 +346,7 @@ class TestJobPerformanceEndpoint:
     def test_access_rules(self, check_access, job_a, recruiter_a, recruiter_b, mock_services):
         mock_services.recruiter_analytics.get_job_performance.return_value = {"job_id": job_a.id}
         r = check_access("GET", f"{BASE}/{job_a.id}/performance", owner=recruiter_a, other=recruiter_b)
-        assert r.get_json()["data"] == {"job_id": job_a.id}
+        assert r.get_json()["data"]["job_id"] == job_a.id
 
     def test_non_owner_gets_404_for_a_job_that_is_not_active(
         self, check_access, draft_job_a, recruiter_a, recruiter_b, mock_services
@@ -361,11 +361,6 @@ class TestJobPerformanceEndpoint:
         mock_services.recruiter_analytics.get_job_performance.return_value = {"job_id": job_a.id}
         client.get(f"{BASE}/{job_a.id}/performance", headers=headers_for(recruiter_a))
         mock_services.recruiter_analytics.get_job_performance.assert_called_once_with(job_id=job_a.id)
-
-    def test_a_service_failure_is_a_500_not_a_403(self, client, db, job_a, recruiter_a, headers_for, mock_services):
-        mock_services.recruiter_analytics.get_job_performance.return_value = {}
-        r = client.get(f"{BASE}/{job_a.id}/performance", headers=headers_for(recruiter_a))
-        assert r.status_code == 500
 
     def test_nonexistent_404(self, client, db, recruiter_a, headers_for, mock_services):
         assert client.get(f"{BASE}/phantom/performance", headers=headers_for(recruiter_a)).status_code == 404
