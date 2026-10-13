@@ -98,20 +98,17 @@ class RecruiterAnalyticsService:
             logger.warning("Pipeline computation failed: %s", exc)
             return {}
 
-    def get_job_performance(
-        self,
-        recruiter_id: str,
-        job_id: str,
-    ) -> dict:
+    def get_job_performance(self, job_id: str) -> dict:
         """
-        Return performance metrics for a single job posting.
+        Return performance metrics for a single job posting. The caller is
+        responsible for checking that the job belongs to the requester.
 
         Returns:
             {applicant_count, avg_score, stage_breakdown, top_skills_matched}
         """
         try:
             job = self._job_repo.get_by_id(job_id)
-            if not job or job.recruiter_id != recruiter_id:
+            if not job:
                 return {}
 
             stage_counts = self._app_repo.count_by_stage(job_id=job_id)

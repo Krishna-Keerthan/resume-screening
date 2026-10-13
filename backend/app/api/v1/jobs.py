@@ -22,9 +22,10 @@ from flask import Blueprint, request
 
 from flask import g
 
-from app.core.security import require_auth
+from app.core.security import current_account, require_auth
 
 from app.core.responses import created, error, no_content, success, success_list
+from app.models.enums import JobStatus
 from app.schemas.job import CreateJobSchema, JobQuerySchema, UpdateJobSchema
 
 from ._helpers import (
@@ -49,6 +50,9 @@ def list_jobs():
     """
     GET /api/v1/jobs/
 
+    Public: lists active jobs. Only an authenticated recruiter may filter by
+    another status, and then only their own jobs are returned.
+
     Query params: page, limit, search, status, job_type, location,
                   min_experience, max_experience
     """
@@ -56,16 +60,26 @@ def list_jobs():
     if err:
         return err
 
+    status       = params.get("status")
+    recruiter_id = None
+    if status and status != JobStatus.ACTIVE.value:
+        account = current_account()
+        if account is not None and g.jwt_role == "recruiter":
+            recruiter_id = account.id
+        else:
+            status = None   # drafts and closed postings are not public
+
     try:
         from app.repositories import JobRepository
         repo = JobRepository()
 
         # If a status is given use generic list; otherwise list_active
-        if params.get("status"):
+        if status:
             items, total = repo.list_all(
                 page=params["page"],
                 limit=params["limit"],
-                status=params["status"],
+                status=status,
+                recruiter_id=recruiter_id,
                 search=params.get("search"),
                 location=params.get("location"),
                 job_type=params.get("job_type"),
@@ -161,13 +175,23 @@ def create_job():
 
 @jobs_bp.get("/<job_id>")
 def get_job(job_id: str):
-    """GET /api/v1/jobs/<job_id>"""
+    """
+    GET /api/v1/jobs/<job_id>
+
+    Public for an active job. Any other job is 404 to everyone except the
+    recruiter who owns it.
+    """
     try:
         from app.repositories import JobRepository
         job = JobRepository().get_by_id(job_id)
 
         if not job or getattr(job, "is_deleted", False):
             return error(f"Job '{job_id}' not found.", code="JOB_NOT_FOUND", status=404)
+
+        if getattr(job.status, "value", job.status) != JobStatus.ACTIVE.value:
+            account = current_account()
+            if account is None or g.jwt_role != "recruiter" or account.id != job.recruiter_id:
+                return error(f"Job '{job_id}' not found.", code="JOB_NOT_FOUND", status=404)
 
         return success(data=serialize_job(job), message="Job retrieved.")
     except Exception:
@@ -365,31 +389,23 @@ def get_skill_gaps(job_id: str):
         return error("Failed to retrieve skill gaps.", code="INTERNAL_ERROR", status=500)
 
 
-# jobs.py — replace lines ~365–390
-
 @jobs_bp.get("/<job_id>/performance")
-@require_auth("recruiter")                      # ← add auth guard too
+@require_auth("recruiter")
 def get_job_performance(job_id: str):
     """
     GET /api/v1/jobs/<job_id>/performance
     Returns applicant_count, avg_score, stage_breakdown, top_skills_matched.
     """
-    from flask import g
     try:
-        from app.repositories import JobRepository
-        job = JobRepository().get_by_id(job_id)
-
-        if not job or getattr(job, "is_deleted", False):
-            return error(f"Job '{job_id}' not found.", code="JOB_NOT_FOUND", status=404)
+        job, err = get_owned_job(job_id)
+        if err:
+            return err
 
         svcs = get_services()
-        perf = svcs.recruiter_analytics.get_job_performance(
-            recruiter_id=g.jwt_user_id,             # ← pass the authenticated recruiter
-            job_id=job_id,
-        )
+        perf = svcs.recruiter_analytics.get_job_performance(job_id=job.id)
 
-        if not perf:                            # service returns {} if ownership fails
-            return error("Access denied or job not found.", code="FORBIDDEN", status=403)
+        if not perf:
+            return error("Failed to retrieve job performance.", code="INTERNAL_ERROR", status=500)
 
         return success(
             data=perf,

@@ -25,6 +25,13 @@ def _job_payload(**overrides):
     return base
 
 
+@pytest.fixture()
+def draft_job_a(db, job_a):
+    job_a.status = "draft"
+    db.session.commit()
+    return job_a
+
+
 class TestListJobs:
     def test_returns_200(self, client, db):
         assert client.get(f"{BASE}/").status_code == 200
@@ -59,11 +66,38 @@ class TestListJobs:
         body = client.get(f"{BASE}/?job_type=full-time").get_json()
         assert body["success"] is True
 
-    def test_status_filter_returns_closed_job(self, client, db, sample_job, sample_job_closed):
-        r = client.get(f"{BASE}/?status=closed")
+    def test_recruiter_can_filter_their_own_jobs_by_status(
+        self, client, db, sample_job, sample_job_closed, sample_recruiter, headers_for
+    ):
+        r = client.get(f"{BASE}/?status=closed", headers=headers_for(sample_recruiter))
         assert r.status_code == 200
-        ids = [j["id"] for j in r.get_json()["data"]]
-        assert ids == [sample_job_closed.id]
+        assert [j["id"] for j in r.get_json()["data"]] == [sample_job_closed.id]
+
+    def test_recruiter_never_sees_other_recruiters_non_active_jobs(
+        self, client, db, sample_job_closed, recruiter_a, headers_for
+    ):
+        r = client.get(f"{BASE}/?status=closed", headers=headers_for(recruiter_a))
+        assert r.get_json()["data"] == []
+
+    def test_recruiter_can_list_their_drafts(self, client, db, draft_job_a, recruiter_a, headers_for):
+        r = client.get(f"{BASE}/?status=draft", headers=headers_for(recruiter_a))
+        assert [j["id"] for j in r.get_json()["data"]] == [draft_job_a.id]
+
+    def test_anonymous_status_filter_still_lists_only_active_jobs(
+        self, client, db, sample_job, sample_job_closed, draft_job_a, anon
+    ):
+        for status in ("closed", "draft", "paused"):
+            ids = [j["id"] for j in client.get(f"{BASE}/?status={status}", headers=anon).get_json()["data"]]
+            assert sample_job.id in ids
+            assert sample_job_closed.id not in ids
+            assert draft_job_a.id not in ids
+
+    def test_candidate_status_filter_still_lists_only_active_jobs(
+        self, client, db, sample_job, sample_job_closed, candidate_a, headers_for
+    ):
+        body = client.get(f"{BASE}/?status=closed", headers=headers_for(candidate_a)).get_json()
+        ids = [j["id"] for j in body["data"]]
+        assert sample_job.id in ids and sample_job_closed.id not in ids
 
     def test_invalid_job_type_400(self, client, db):
         r = client.get(f"{BASE}/?job_type=gig-work")
@@ -143,25 +177,36 @@ class TestCreateJob:
 
 
 class TestGetJob:
-    def test_returns_200(self, client, db, sample_job):
-        assert client.get(f"{BASE}/{sample_job.id}").status_code == 200
-
-    def test_correct_data(self, client, db, sample_job):
-        body = client.get(f"{BASE}/{sample_job.id}").get_json()
-        assert body["data"]["id"] == sample_job.id
-        assert body["data"]["title"] == sample_job.title
+    def test_active_job_is_public(self, client, db, sample_job, anon):
+        r = client.get(f"{BASE}/{sample_job.id}", headers=anon)
+        assert r.status_code == 200
+        assert r.get_json()["data"]["id"] == sample_job.id
+        assert r.get_json()["data"]["title"] == sample_job.title
 
     def test_nonexistent_404(self, client, db):
         r = client.get(f"{BASE}/phantom-job")
         assert r.status_code == 404
         assert r.get_json()["error"]["error_code"] == "JOB_NOT_FOUND"
 
+    @pytest.mark.parametrize("fixture_name", ["draft_job_a", "sample_job_closed"])
+    def test_non_active_job_is_404_to_anonymous_candidates_and_other_recruiters(
+        self, request, client, db, fixture_name, candidate_a, recruiter_b, headers_for, anon
+    ):
+        job = request.getfixturevalue(fixture_name)
+        for headers in (anon, headers_for(candidate_a), headers_for(recruiter_b)):
+            r = client.get(f"{BASE}/{job.id}", headers=headers)
+            assert r.status_code == 404
+            assert r.get_json()["error"]["error_code"] == "JOB_NOT_FOUND"
 
-@pytest.fixture()
-def draft_job_a(db, job_a):
-    job_a.status = "draft"
-    db.session.commit()
-    return job_a
+    def test_non_active_job_is_visible_to_its_recruiter(self, client, db, draft_job_a, recruiter_a, headers_for):
+        r = client.get(f"{BASE}/{draft_job_a.id}", headers=headers_for(recruiter_a))
+        assert r.status_code == 200
+        assert r.get_json()["data"]["id"] == draft_job_a.id
+
+    def test_closed_job_is_visible_to_its_recruiter(
+        self, client, db, sample_job_closed, sample_recruiter, headers_for
+    ):
+        assert client.get(f"{BASE}/{sample_job_closed.id}", headers=headers_for(sample_recruiter)).status_code == 200
 
 
 class TestUpdateJob:
@@ -295,3 +340,32 @@ class TestEnhanceJobEndpoint:
         mock_services.smart_job_posting.enhance.return_value = self._enhancement(draft_job_a)
         check_access("POST", f"{BASE}/{draft_job_a.id}/enhance", owner=recruiter_a,
                      other=recruiter_b, json={}, other_status=404)
+
+
+class TestJobPerformanceEndpoint:
+    def test_access_rules(self, check_access, job_a, recruiter_a, recruiter_b, mock_services):
+        mock_services.recruiter_analytics.get_job_performance.return_value = {"job_id": job_a.id}
+        r = check_access("GET", f"{BASE}/{job_a.id}/performance", owner=recruiter_a, other=recruiter_b)
+        assert r.get_json()["data"] == {"job_id": job_a.id}
+
+    def test_non_owner_gets_404_for_a_job_that_is_not_active(
+        self, check_access, draft_job_a, recruiter_a, recruiter_b, mock_services
+    ):
+        mock_services.recruiter_analytics.get_job_performance.return_value = {"job_id": draft_job_a.id}
+        check_access("GET", f"{BASE}/{draft_job_a.id}/performance", owner=recruiter_a,
+                     other=recruiter_b, other_status=404)
+
+    def test_ownership_is_decided_by_the_route_not_the_service(
+        self, client, db, job_a, recruiter_a, headers_for, mock_services
+    ):
+        mock_services.recruiter_analytics.get_job_performance.return_value = {"job_id": job_a.id}
+        client.get(f"{BASE}/{job_a.id}/performance", headers=headers_for(recruiter_a))
+        mock_services.recruiter_analytics.get_job_performance.assert_called_once_with(job_id=job_a.id)
+
+    def test_a_service_failure_is_a_500_not_a_403(self, client, db, job_a, recruiter_a, headers_for, mock_services):
+        mock_services.recruiter_analytics.get_job_performance.return_value = {}
+        r = client.get(f"{BASE}/{job_a.id}/performance", headers=headers_for(recruiter_a))
+        assert r.status_code == 500
+
+    def test_nonexistent_404(self, client, db, recruiter_a, headers_for, mock_services):
+        assert client.get(f"{BASE}/phantom/performance", headers=headers_for(recruiter_a)).status_code == 404
