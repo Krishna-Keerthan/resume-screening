@@ -15,7 +15,7 @@ Relationships:
 
 from typing import Any
 
-from sqlalchemy import Boolean, Index, Integer, String, Text
+from sqlalchemy import Boolean, Index, func, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import BaseModel
@@ -108,3 +108,7 @@ class Recruiter(SoftDeleteMixin, BaseModel):
         d = self.to_dict()
         d["active_jobs"] = sum(1 for j in self.jobs if j.status == "active")
         return d
+
+
+# Emails are unique ignoring case (migration 0003 creates the same index).
+Index("uq_recruiters_email_lower", func.lower(Recruiter.email), unique=True)

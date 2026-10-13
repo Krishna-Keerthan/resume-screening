@@ -18,7 +18,7 @@ Relationships:
 import json
 from typing import Any
 
-from sqlalchemy import Boolean, Index, String, Text
+from sqlalchemy import Boolean, Index, func, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import BaseModel, db
@@ -141,6 +141,10 @@ class Candidate(SoftDeleteMixin, BaseModel):
     def to_dict_public(self) -> dict[str, Any]:
         """External-safe view — omits internal flags and auth fields."""
         return self.to_dict(exclude={"is_active"})
+
+
+# Emails are unique ignoring case (migration 0003 creates the same index).
+Index("uq_candidates_email_lower", func.lower(Candidate.email), unique=True)
 
 
 def _safe_json_list(value: str | None) -> list:

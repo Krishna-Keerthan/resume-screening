@@ -39,6 +39,8 @@ def test_returns_none_for_an_unknown_id(account):
 
 # ─── get_by_email / email_exists ──────────────────────────────────────────────
 
+from sqlalchemy.exc import IntegrityError
+
 from app.core.security import hash_password
 from app.models.candidate import Candidate
 from app.models.recruiter import Recruiter
@@ -103,3 +105,13 @@ def test_email_exists_still_sees_deleted_accounts(accounts, db):
     gone.soft_delete()
     db.session.flush()
     assert repo.email_exists("GONE@example.com") is True
+
+
+def test_the_database_rejects_two_emails_that_differ_only_in_case(accounts, db):
+    repo, make = accounts
+    make("dup@example.com")
+    db.session.flush()
+    with pytest.raises(IntegrityError):
+        with db.session.begin_nested():
+            make("DUP@example.com")
+            db.session.flush()
