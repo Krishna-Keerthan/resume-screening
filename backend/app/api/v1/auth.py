@@ -588,31 +588,13 @@ def me():
 
     Read-only — no commit needed.
     """
-    user_id, role = get_current_user()
-
-    try:
-        if role == "candidate":
-            from app.repositories import CandidateRepository
-            user = CandidateRepository().get_by_id(user_id)
-            if not user or not getattr(user, "is_active", True):
-                return error("Account not found.", code="USER_NOT_FOUND", status=404)
-            return success(
-                data={"role": "candidate", "user": serialize_candidate(user)},
-                message="Profile retrieved.",
-            )
-        else:
-            from app.repositories import RecruiterRepository
-            user = RecruiterRepository().get_by_id(user_id)
-            if not user or not getattr(user, "is_active", True):
-                return error("Account not found.", code="USER_NOT_FOUND", status=404)
-            return success(
-                data={"role": "recruiter", "user": serialize_recruiter(user)},
-                message="Profile retrieved.",
-            )
-
-    except Exception:
-        logger.error("me failed", exc_info=True)
-        return error("Failed to retrieve profile.", code="INTERNAL_ERROR", status=500)
+    # require_auth has already loaded the account and rejected dead ones.
+    _, role = get_current_user()
+    serialize = serialize_candidate if role == "candidate" else serialize_recruiter
+    return success(
+        data={"role": role, "user": serialize(g.current_user)},
+        message="Profile retrieved.",
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

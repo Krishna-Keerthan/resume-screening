@@ -122,3 +122,47 @@ def test_refresh_token_is_dead_after_change_password(
 
     after = client.post(f"{BASE}/refresh", headers=_cookie_header(raw))
     assert after.status_code == 401
+
+
+# ─── Account status: access tokens ────────────────────────────────────────────
+
+@pytest.mark.parametrize("state", _DEAD_STATES)
+@pytest.mark.parametrize("account", ["candidate", "recruiter"], indirect=True)
+def test_access_token_stops_working_when_the_account_dies(
+    client, account, state, headers_for
+):
+    user, role = account
+    headers = headers_for(user)
+    assert client.get(f"{BASE}/me", headers=headers).status_code == 200
+
+    _kill(user, state)
+
+    for method, url in (
+        ("GET", f"{BASE}/me"),
+        ("POST", f"{BASE}/logout"),
+        ("POST", f"{BASE}/logout-all"),
+    ):
+        r = client.open(url, method=method, headers=headers)
+        assert r.status_code == 401, f"{method} {url} -> {r.status_code}"
+        assert r.get_json()["error"]["error_code"] == "INVALID_TOKEN"
+
+
+def test_dead_candidate_cannot_use_a_role_protected_route(
+    client, candidate_a, headers_for
+):
+    headers = headers_for(candidate_a)
+    _kill(candidate_a, "deleted")
+
+    r = client.patch(f"/api/v1/candidates/{candidate_a.id}",
+                     json={"headline": "Still here"}, headers=headers)
+
+    assert r.status_code == 401
+
+
+def test_access_token_for_a_user_that_does_not_exist_is_rejected(client, candidate_a, headers_for):
+    headers = headers_for(candidate_a)
+    from app.core.database import db
+    db.session.delete(candidate_a)
+    db.session.commit()
+
+    assert client.get(f"{BASE}/me", headers=headers).status_code == 401

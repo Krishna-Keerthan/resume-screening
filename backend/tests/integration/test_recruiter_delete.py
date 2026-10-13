@@ -26,12 +26,12 @@ def test_delete_soft_deletes_and_keeps_jobs(client, db, sample_recruiter, sample
     assert job.recruiter_id == sample_recruiter.id
 
 
-def test_deleting_twice_returns_404(client, db, sample_recruiter):
+def test_token_stops_working_once_the_account_is_deleted(client, db, sample_recruiter):
     headers = _recruiter_auth(sample_recruiter)
     assert client.delete(f"{BASE}/{sample_recruiter.id}", headers=headers).status_code == 204
     r = client.delete(f"{BASE}/{sample_recruiter.id}", headers=headers)
-    assert r.status_code == 404
-    assert r.get_json()["error"]["error_code"] == "RECRUITER_NOT_FOUND"
+    assert r.status_code == 401
+    assert r.get_json()["error"]["error_code"] == "INVALID_TOKEN"
 
 
 def test_hard_delete_does_not_cascade_to_jobs(db, sample_recruiter, sample_job):

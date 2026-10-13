@@ -227,6 +227,19 @@ def account_is_usable(user) -> bool:
     return user is not None and bool(user.is_active) and not user.is_deleted
 
 
+def _load_account(user_id: str | None, role: str | None):
+    """Load the candidate or recruiter a token claims to belong to, or None."""
+    if not user_id:
+        return None
+    if role == "candidate":
+        from app.repositories.candidate import CandidateRepository
+        return CandidateRepository().get_by_id(user_id)
+    if role == "recruiter":
+        from app.repositories.recruiter import RecruiterRepository
+        return RecruiterRepository().get_by_id(user_id)
+    return None
+
+
 def require_auth(*roles: str) -> Callable:
     """
     Flask route decorator that enforces authentication and optional role check.
@@ -261,6 +274,14 @@ def require_auth(*roles: str) -> Callable:
             user_id = payload.get("sub")
             role    = payload.get("role")
 
+            user = _load_account(user_id, role)
+            if not account_is_usable(user):
+                return err_response(
+                    "Account is no longer active.",
+                    code="INVALID_TOKEN",
+                    status=401,
+                )
+
             if roles and role not in roles:
                 return err_response(
                     f"Access denied. Required role(s): {', '.join(roles)}.",
@@ -269,6 +290,7 @@ def require_auth(*roles: str) -> Callable:
                 )
 
             # Store on g for downstream use
+            g.current_user = user
             g.jwt_user_id = user_id
             g.jwt_role    = role
             g.jwt_jti     = payload.get("jti")
