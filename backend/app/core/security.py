@@ -222,6 +222,11 @@ def _role_from_model(user) -> str:
     return "candidate"
 
 
+def account_is_usable(user) -> bool:
+    """True if the account may log in or hold a session: it exists, is active and is not deleted."""
+    return user is not None and bool(user.is_active) and not user.is_deleted
+
+
 def require_auth(*roles: str) -> Callable:
     """
     Flask route decorator that enforces authentication and optional role check.

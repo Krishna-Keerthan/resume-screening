@@ -15,6 +15,7 @@ from flask import Blueprint, g, make_response, request
 from app.core.database import db
 from app.core.responses import created, error, success
 from app.core.security import (
+    account_is_usable,
     create_tokens,
     decode_refresh_token,
     get_current_user,
@@ -300,7 +301,7 @@ def login():
         if role == "candidate":
             from app.repositories import CandidateRepository
             user = CandidateRepository().get_by_email(email)
-            if not user or not getattr(user, "is_active", True):
+            if not account_is_usable(user):
                 return _INVALID()
             if not verify_password(password, getattr(user, "password_hash", "") or ""):
                 return _INVALID()
@@ -311,7 +312,7 @@ def login():
         else:  # recruiter
             from app.repositories import RecruiterRepository
             user = RecruiterRepository().get_by_email(email)
-            if not user or not getattr(user, "is_active", True):
+            if not account_is_usable(user):
                 return _INVALID()
             if not verify_password(password, getattr(user, "password_hash", "") or ""):
                 return _INVALID()
