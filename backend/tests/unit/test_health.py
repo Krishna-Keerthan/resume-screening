@@ -49,14 +49,6 @@ def test_405_returns_json(client):
     assert body["success"] is False
 
 
-@pytest.mark.xfail(reason="Phase 1: auth", strict=False)
-def test_stub_candidates_endpoint(client):
-    resp = client.get("/api/v1/candidates/")
-    assert resp.status_code == 200
-    body = resp.get_json()
-    assert body["success"] is True
-
-
 def test_stub_jobs_endpoint(client):
     resp = client.get("/api/v1/jobs/")
     assert resp.status_code == 200

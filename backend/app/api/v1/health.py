@@ -60,8 +60,9 @@ def readiness():
         from app.core.database import db
         db.session.execute(db.text("SELECT 1"))
         checks["database"] = {"status": "ok"}
-    except Exception as exc:
-        checks["database"] = {"status": "error", "detail": str(exc)}
+    except Exception:
+        logger.error("Readiness: database check failed", exc_info=True)
+        checks["database"] = {"status": "error", "detail": "Database unavailable."}
         healthy = False
 
     # ── Service layer check ───────────────────────────────────────────────────
@@ -72,8 +73,9 @@ def readiness():
             healthy = False
         else:
             checks["services"] = {"status": "ok"}
-    except Exception as exc:
-        checks["services"] = {"status": "error", "detail": str(exc)}
+    except Exception:
+        logger.error("Readiness: service check failed", exc_info=True)
+        checks["services"] = {"status": "error", "detail": "Service layer unavailable."}
         healthy = False
 
     status_code = 200 if healthy else 503

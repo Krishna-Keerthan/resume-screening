@@ -78,3 +78,18 @@ class TestErrorHandlers:
         assert "error" in body
         assert "error_code" in body["error"]
         assert "message" in body["error"]
+
+class TestReadinessFailure:
+    SECRET = "postgresql://admin:hunter2@db.internal:5432/ats"
+
+    def test_database_failure_is_reported_without_the_exception_text(self, client):
+        from unittest.mock import patch
+
+        from app.core.database import db
+
+        with patch.object(db.session, "execute", side_effect=RuntimeError(self.SECRET)):
+            resp = client.get("/api/v1/health/ready")
+
+        assert resp.status_code == 503
+        assert "hunter2" not in resp.get_data(as_text=True)
+        assert resp.get_json()["error"]["details"]["checks"]["database"]["status"] == "error"
