@@ -30,11 +30,3 @@ class UpdateRecruiterSchema(BaseSchema):
     phone        = fields.String(allow_none=True, validate=validate.Length(max=30))
     website_url  = fields.Url(allow_none=True)
     linkedin_url = fields.Url(allow_none=True)
-
-
-class RecruiterQuerySchema(BaseSchema):
-    """Validates GET /api/v1/recruiters query params."""
-    page         = fields.Integer(load_default=1,  validate=validate.Range(min=1))
-    limit        = fields.Integer(load_default=20, validate=validate.Range(min=1, max=100))
-    search       = fields.String(load_default=None)
-    company_name = fields.String(load_default=None)

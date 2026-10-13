@@ -1,151 +1,81 @@
-
 """
 tests/integration/test_recruiters.py
 
-Integration tests for /api/v1/recruiters/* endpoints.
+Integration tests for /api/v1/recruiters/* endpoints. Every route is
+self-only: a recruiter can read and change only their own account.
 """
-import uuid
-import pytest
+from types import SimpleNamespace
 
 BASE = "/api/v1/recruiters"
 
-pytestmark = pytest.mark.xfail(reason="Phase 1: auth", strict=False)
+
+def _routes(app):
+    return {(method, rule.rule) for rule in app.url_map.iter_rules() for method in rule.methods}
 
 
-def _recruiter_payload(**overrides):
-    base = {
-        "full_name":    "Test Recruiter",
-        "email":        f"recruiter+{uuid.uuid4().hex[:8]}@corp.com",
-        "company_name": "Test Corp",
-        "company_size": "51-200",
-        "industry":     "Technology",
-    }
-    base.update(overrides)
-    return base
+class TestRemovedRoutes:
+    def test_there_is_no_recruiter_listing_route(self, app):
+        assert ("GET", f"{BASE}/") not in _routes(app)
 
-
-class TestListRecruiters:
-    def test_returns_200(self, client, db):
-        assert client.get(f"{BASE}/").status_code == 200
-
-    def test_success_envelope(self, client, db):
-        body = client.get(f"{BASE}/").get_json()
-        assert body["success"] is True
-
-    def test_pagination_meta(self, client, db):
-        meta = client.get(f"{BASE}/").get_json()["meta"]
-        assert "total" in meta and "page" in meta and "limit" in meta
-
-    def test_search_by_name(self, client, db, sample_recruiter):
-        body = client.get(f"{BASE}/?search=HR Manager").get_json()
-        found = [r for r in body["data"] if r["full_name"] == "HR Manager"]
-        assert len(found) >= 1
-
-    def test_search_by_company(self, client, db, sample_recruiter):
-        body = client.get(f"{BASE}/?company_name=TechCorp").get_json()
-        assert body["success"] is True
-
-
-class TestCreateRecruiter:
-    def test_returns_201(self, client, db, json_post):
-        r, _ = json_post(f"{BASE}/", _recruiter_payload())
-        assert r.status_code == 201
-
-    def test_id_in_response(self, client, db, json_post):
-        _, body = json_post(f"{BASE}/", _recruiter_payload())
-        assert body["data"]["id"] is not None
-
-    def test_fields_correct(self, client, db, json_post):
-        payload = _recruiter_payload()
-        _, body = json_post(f"{BASE}/", payload)
-        assert body["data"]["company_name"] == payload["company_name"]
-        assert body["data"]["industry"] == payload["industry"]
-
-    def test_missing_email_400(self, client, db, json_post):
-        payload = _recruiter_payload()
-        del payload["email"]
-        r, _ = json_post(f"{BASE}/", payload)
-        assert r.status_code == 400
-
-    def test_missing_full_name_400(self, client, db, json_post):
-        payload = _recruiter_payload()
-        del payload["full_name"]
-        r, _ = json_post(f"{BASE}/", payload)
-        assert r.status_code == 400
-
-    def test_duplicate_email_409(self, client, db, json_post, sample_recruiter):
-        r, body = json_post(f"{BASE}/", _recruiter_payload(email=sample_recruiter.email))
-        assert r.status_code == 409
-        assert body["error"]["error_code"] == "RECRUITER_EMAIL_CONFLICT"
-
-    def test_invalid_company_size_400(self, client, db, json_post):
-        r, _ = json_post(f"{BASE}/", _recruiter_payload(company_size="gigantic"))
-        assert r.status_code == 400
+    def test_there_is_no_recruiter_pipeline_route(self, app):
+        assert ("GET", f"{BASE}/<recruiter_id>/pipeline") not in _routes(app)
 
 
 class TestGetRecruiter:
-    def test_returns_200(self, client, db, sample_recruiter):
-        r = client.get(f"{BASE}/{sample_recruiter.id}")
-        assert r.status_code == 200
+    def test_access_rules(self, check_access, recruiter_a, recruiter_b):
+        r = check_access("GET", f"{BASE}/{recruiter_a.id}", owner=recruiter_a, other=recruiter_b)
+        assert r.get_json()["data"]["id"] == recruiter_a.id
+        assert r.get_json()["data"]["company_name"] == recruiter_a.company_name
 
-    def test_correct_id(self, client, db, sample_recruiter):
-        body = client.get(f"{BASE}/{sample_recruiter.id}").get_json()
-        assert body["data"]["id"] == sample_recruiter.id
-
-    def test_correct_company(self, client, db, sample_recruiter):
-        body = client.get(f"{BASE}/{sample_recruiter.id}").get_json()
-        assert body["data"]["company_name"] == sample_recruiter.company_name
-
-    def test_nonexistent_404(self, client, db):
-        r = client.get(f"{BASE}/no-such-recruiter")
-        assert r.status_code == 404
-        assert r.get_json()["error"]["error_code"] == "RECRUITER_NOT_FOUND"
+    def test_a_candidate_gets_403(self, client, db, recruiter_a, candidate_a, headers_for):
+        r = client.get(f"{BASE}/{recruiter_a.id}", headers=headers_for(candidate_a))
+        assert r.status_code == 403
 
 
 class TestUpdateRecruiter:
-    def test_returns_200(self, client, db, sample_recruiter, json_patch):
-        r, _ = json_patch(f"{BASE}/{sample_recruiter.id}", {"industry": "Fintech"})
-        assert r.status_code == 200
+    def test_access_rules(self, check_access, recruiter_a, recruiter_b):
+        r = check_access("PATCH", f"{BASE}/{recruiter_a.id}", owner=recruiter_a, other=recruiter_b,
+                         json={"industry": "Fintech"})
+        assert r.get_json()["data"]["industry"] == "Fintech"
 
-    def test_industry_updated(self, client, db, sample_recruiter, json_patch):
-        _, body = json_patch(f"{BASE}/{sample_recruiter.id}", {"industry": "Fintech"})
-        assert body["data"]["industry"] == "Fintech"
+    def test_partial_update_keeps_other_fields(self, client, db, recruiter_a, headers_for):
+        r = client.patch(f"{BASE}/{recruiter_a.id}", json={"industry": "Healthcare"},
+                         headers=headers_for(recruiter_a))
+        assert r.get_json()["data"]["full_name"] == "Recruiter a"
 
-    def test_partial_update(self, client, db, sample_recruiter, json_patch):
-        original_name = sample_recruiter.full_name
-        _, body = json_patch(f"{BASE}/{sample_recruiter.id}", {"industry": "Healthcare"})
-        assert body["data"]["full_name"] == original_name
-
-    def test_nonexistent_404(self, client, db, json_patch):
-        r, _ = json_patch(f"{BASE}/ghost", {"industry": "x"})
-        assert r.status_code == 404
+    def test_another_recruiter_changes_nothing(self, client, db, recruiter_a, recruiter_b, headers_for):
+        client.patch(f"{BASE}/{recruiter_a.id}", json={"industry": "Hijacked"},
+                     headers=headers_for(recruiter_b))
+        db.session.refresh(recruiter_a)
+        assert recruiter_a.industry != "Hijacked"
 
 
 class TestDeleteRecruiter:
-    def test_returns_204(self, client, db, sample_recruiter):
-        assert client.delete(f"{BASE}/{sample_recruiter.id}").status_code == 204
+    def test_access_rules(self, check_access, recruiter_a, recruiter_b):
+        r = check_access("DELETE", f"{BASE}/{recruiter_a.id}", owner=recruiter_a, other=recruiter_b)
+        assert r.status_code == 204
 
-    def test_deleted_is_404(self, client, db, sample_recruiter):
-        client.delete(f"{BASE}/{sample_recruiter.id}")
-        assert client.get(f"{BASE}/{sample_recruiter.id}").status_code == 404
-
-    def test_nonexistent_404(self, client, db):
-        assert client.delete(f"{BASE}/ghost-rec").status_code == 404
+    def test_another_recruiter_cannot_delete(self, client, db, recruiter_a, recruiter_b, headers_for):
+        client.delete(f"{BASE}/{recruiter_a.id}", headers=headers_for(recruiter_b))
+        db.session.refresh(recruiter_a)
+        assert recruiter_a.is_deleted is False
 
 
 class TestRecruiterJobs:
-    def test_returns_200(self, client, db, sample_recruiter, sample_job):
-        r = client.get(f"{BASE}/{sample_recruiter.id}/jobs")
-        assert r.status_code == 200
+    def test_access_rules(self, check_access, job_a, recruiter_a, recruiter_b):
+        r = check_access("GET", f"{BASE}/{recruiter_a.id}/jobs", owner=recruiter_a, other=recruiter_b)
+        assert [j["id"] for j in r.get_json()["data"]] == [job_a.id]
 
-    def test_returns_job(self, client, db, sample_recruiter, sample_job):
-        body = client.get(f"{BASE}/{sample_recruiter.id}/jobs").get_json()
-        ids = [j["id"] for j in body["data"]]
-        assert sample_job.id in ids
+    def test_filter_by_status(self, client, db, job_a, recruiter_a, headers_for):
+        active = client.get(f"{BASE}/{recruiter_a.id}/jobs?status=active", headers=headers_for(recruiter_a))
+        closed = client.get(f"{BASE}/{recruiter_a.id}/jobs?status=closed", headers=headers_for(recruiter_a))
+        assert [j["id"] for j in active.get_json()["data"]] == [job_a.id]
+        assert closed.get_json()["data"] == []
 
-    def test_filter_by_status(self, client, db, sample_recruiter, sample_job):
-        body = client.get(f"{BASE}/{sample_recruiter.id}/jobs?status=active").get_json()
-        assert all(j["status"] == "active" for j in body["data"])
 
-    def test_nonexistent_recruiter_404(self, client, db):
-        assert client.get(f"{BASE}/ghost/jobs").status_code == 404
+class TestRecruiterAnalytics:
+    def test_access_rules(self, check_access, recruiter_a, recruiter_b, mock_services):
+        mock_services.recruiter_analytics.get_dashboard.return_value = SimpleNamespace(
+            recruiter_id=recruiter_a.id, total_jobs=0)
+        r = check_access("GET", f"{BASE}/{recruiter_a.id}/analytics", owner=recruiter_a, other=recruiter_b)
+        assert r.get_json()["data"]["total_jobs"] == 0

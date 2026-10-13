@@ -1,21 +1,15 @@
 """
-app/api/v1/recruiters.py  (JWT-secured revision)
+app/api/v1/recruiters.py
 
-Recruiter resource — profile management and analytics.
-
-Auth changes vs original:
-  All write routes require a valid recruiter JWT.
-  Recruiters can only read/modify their own profile.
-  POST /recruiters/ is REMOVED — use POST /auth/register/recruiter instead.
+Recruiter resource — profile management and analytics. Every route needs a
+recruiter token and is self-only (the path id must be the caller's id).
 
 Routes:
-  GET    /recruiters/               — list recruiters        [recruiter]
-  GET    /recruiters/<id>           — get own profile        [recruiter, owns]
-  PATCH  /recruiters/<id>           — update own profile     [recruiter, owns]
-  DELETE /recruiters/<id>           — soft-delete account    [recruiter, owns]
-  GET    /recruiters/<id>/jobs      — own job postings       [recruiter, owns]
-  GET    /recruiters/<id>/analytics — dashboard metrics      [recruiter, owns]
-  GET    /recruiters/<id>/pipeline  — pipeline funnel        [recruiter, owns]
+  GET    /recruiters/<id>           — get own profile
+  PATCH  /recruiters/<id>           — update own profile
+  DELETE /recruiters/<id>           — soft-delete account
+  GET    /recruiters/<id>/jobs      — own job postings
+  GET    /recruiters/<id>/analytics — dashboard metrics
 """
 
 import logging
@@ -25,12 +19,11 @@ from flask import Blueprint, request
 from app.core.responses import created, error, no_content, success, success_list
 from app.core.security import get_current_user, require_auth, require_ownership
 from app.models.refresh_token import RefreshToken
-from app.schemas.recruiter import RecruiterQuerySchema, UpdateRecruiterSchema
+from app.schemas.recruiter import UpdateRecruiterSchema
 
 from ._helpers import (
     get_services,
     parse_body,
-    parse_query,
     serialize_job,
     serialize_recruiter,
 )
@@ -38,43 +31,6 @@ from ._helpers import (
 logger = logging.getLogger(__name__)
 
 recruiters_bp = Blueprint("recruiters", __name__)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# List
-# ─────────────────────────────────────────────────────────────────────────────
-
-@recruiters_bp.get("/")
-@require_auth("recruiter")
-def list_recruiters():
-    """
-    GET /api/v1/recruiters/
-
-    Recruiter-only — visibility into peer recruiters on the platform.
-    Query params: page, limit, search, company_name
-    """
-    params, err = parse_query(RecruiterQuerySchema)
-    if err:
-        return err
-
-    try:
-        from app.repositories import RecruiterRepository
-        items, total = RecruiterRepository().list_active(
-            page=params["page"],
-            limit=params["limit"],
-            search=params.get("search"),
-            company_name=params.get("company_name"),
-        )
-        return success_list(
-            data=[serialize_recruiter(r) for r in items],
-            total=total,
-            page=params["page"],
-            limit=params["limit"],
-            message="Recruiters retrieved.",
-        )
-    except Exception:
-        logger.error("list_recruiters failed", exc_info=True)
-        return error("Failed to retrieve recruiters.", code="INTERNAL_ERROR", status=500)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -88,9 +44,9 @@ def get_recruiter(recruiter_id: str):
     """GET /api/v1/recruiters/<recruiter_id> — own profile only."""
     try:
         from app.repositories import RecruiterRepository
-        recruiter = RecruiterRepository().get_by_id(recruiter_id)
+        recruiter = RecruiterRepository().get_active_by_id(recruiter_id)
 
-        if not recruiter or not getattr(recruiter, "is_active", True):
+        if not recruiter:
             return error(
                 f"Recruiter '{recruiter_id}' not found.",
                 code="RECRUITER_NOT_FOUND",
@@ -115,9 +71,9 @@ def update_recruiter(recruiter_id: str):
     try:
         from app.repositories import RecruiterRepository
         repo      = RecruiterRepository()
-        recruiter = repo.get_by_id(recruiter_id)
+        recruiter = repo.get_active_by_id(recruiter_id)
 
-        if not recruiter or not getattr(recruiter, "is_active", True):
+        if not recruiter:
             return error(
                 f"Recruiter '{recruiter_id}' not found.",
                 code="RECRUITER_NOT_FOUND",
@@ -148,9 +104,9 @@ def delete_recruiter(recruiter_id: str):
     try:
         from app.repositories import RecruiterRepository
         repo      = RecruiterRepository()
-        recruiter = repo.get_by_id(recruiter_id)
+        recruiter = repo.get_active_by_id(recruiter_id)
 
-        if not recruiter or recruiter.is_deleted:
+        if not recruiter:
             return error(
                 f"Recruiter '{recruiter_id}' not found.",
                 code="RECRUITER_NOT_FOUND",
@@ -182,7 +138,7 @@ def list_recruiter_jobs(recruiter_id: str):
     try:
         from app.repositories import RecruiterRepository, JobRepository
 
-        if not RecruiterRepository().get_by_id(recruiter_id):
+        if not RecruiterRepository().get_active_by_id(recruiter_id):
             return error(
                 f"Recruiter '{recruiter_id}' not found.",
                 code="RECRUITER_NOT_FOUND",
@@ -209,7 +165,7 @@ def get_recruiter_analytics(recruiter_id: str):
     """GET /api/v1/recruiters/<recruiter_id>/analytics — own dashboard."""
     try:
         from app.repositories import RecruiterRepository
-        if not RecruiterRepository().get_by_id(recruiter_id):
+        if not RecruiterRepository().get_active_by_id(recruiter_id):
             return error(
                 f"Recruiter '{recruiter_id}' not found.",
                 code="RECRUITER_NOT_FOUND",
@@ -226,29 +182,3 @@ def get_recruiter_analytics(recruiter_id: str):
     except Exception:
         logger.error("get_recruiter_analytics failed", exc_info=True)
         return error("Failed to retrieve analytics.", code="INTERNAL_ERROR", status=500)
-
-
-@recruiters_bp.get("/<recruiter_id>/pipeline")
-@require_auth("recruiter")
-@require_ownership("recruiter_id")
-def get_recruiter_pipeline(recruiter_id: str):
-    """GET /api/v1/recruiters/<recruiter_id>/pipeline — own pipeline funnel."""
-    try:
-        from app.repositories import RecruiterRepository
-        if not RecruiterRepository().get_by_id(recruiter_id):
-            return error(
-                f"Recruiter '{recruiter_id}' not found.",
-                code="RECRUITER_NOT_FOUND",
-                status=404,
-            )
-
-        svcs     = get_services()
-        pipeline = svcs.recruiter_analytics.get_pipeline(recruiter_id)
-
-        return success(
-            data=pipeline.__dict__ if hasattr(pipeline, "__dict__") else pipeline,
-            message="Pipeline breakdown retrieved.",
-        )
-    except Exception:
-        logger.error("get_recruiter_pipeline failed", exc_info=True)
-        return error("Failed to retrieve pipeline.", code="INTERNAL_ERROR", status=500)
