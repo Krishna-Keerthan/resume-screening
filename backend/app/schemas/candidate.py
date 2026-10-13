@@ -38,12 +38,3 @@ class UpdateCandidateSchema(BaseSchema):
     preferred_roles     = fields.List(fields.String())
     preferred_locations = fields.List(fields.String())
     open_to_work        = fields.Boolean()
-
-
-class CandidateQuerySchema(BaseSchema):
-    """Validates GET /api/v1/candidates query params."""
-    page          = fields.Integer(load_default=1, validate=validate.Range(min=1))
-    limit         = fields.Integer(load_default=20, validate=validate.Range(min=1, max=100))
-    search        = fields.String(load_default=None)
-    open_to_work  = fields.Boolean(load_default=None)
-    location      = fields.String(load_default=None)

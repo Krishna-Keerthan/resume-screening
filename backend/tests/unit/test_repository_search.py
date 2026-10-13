@@ -42,27 +42,6 @@ class TestJobSearch:
         assert self._titles(location="site_7") == {"Engineer A"}
 
 
-class TestCandidateSearch:
-    def _names(self, **filters):
-        from app.repositories import CandidateRepository
-        items, _ = CandidateRepository().list_active(**filters)
-        return {c.full_name for c in items}
-
-    def test_search_is_case_insensitive(self, db, make_candidate):
-        make_candidate(full_name="Ada Lovelace")
-        assert self._names(search="lovelace") == {"Ada Lovelace"}
-
-    def test_search_underscore_is_literal(self, db, make_candidate):
-        make_candidate(full_name="C_Sharp Dev")
-        make_candidate(full_name="CxSharp Dev")
-        assert self._names(search="C_Sharp") == {"C_Sharp Dev"}
-
-    def test_location_percent_is_literal(self, db, make_candidate):
-        make_candidate(full_name="Near", location="100% Remote")
-        make_candidate(full_name="Far", location="1000 Oaks")
-        assert self._names(location="100%") == {"Near"}
-
-
 def _recruiter(full_name, company_name):
     import uuid
     from app.models.recruiter import Recruiter

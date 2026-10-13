@@ -20,7 +20,7 @@ Usage:
     from app.repositories import CandidateRepository
     repo = CandidateRepository()
     candidate = repo.get_by_id("abc-123")
-    candidates, total = repo.list_active(page=1, limit=20)
+    candidate = repo.get_active_by_id("abc-123")
 """
 
 from app.repositories.base        import BaseRepository

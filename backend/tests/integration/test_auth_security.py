@@ -205,7 +205,7 @@ def test_deleting_a_candidate_twice_is_rejected_the_second_time(
 
 
 def test_recruiter_cannot_read_a_deleted_candidate(
-    client, candidate_a, recruiter_a, headers_for, resume_a
+    client, candidate_a, recruiter_a, headers_for, application_a
 ):
     url = f"/api/v1/candidates/{candidate_a.id}"
     assert client.get(url, headers=headers_for(recruiter_a)).status_code == 200

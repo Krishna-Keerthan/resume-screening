@@ -1,18 +1,17 @@
 """
-app/api/v1/candidates.py  (storage-agnostic revision)
+app/api/v1/candidates.py
 
-Key changes vs previous version:
-  - upload_resume() now uses StorageService instead of direct os / file.save() calls.
-  - File bytes are read into memory once; same bytes go to storage AND parser.
-  - validate_upload() from file_helpers checks extension, MIME type and size.
-  - @require_ownership("candidate_id") decorator restored (security fix).
-  - Resume.file_path stores the storage URL (Cloudinary secure_url or local path).
-  - Resume.storage_key stores the deletion handle (Cloudinary public_id or local path).
-  - Re-parse in analyze_resume reads from storage_service.download_bytes(url).
-  - No os.path, no file.save(), no hardcoded /tmp paths remain in this file.
+Routes (all need a token):
+  GET    /candidates/<id>                 — candidate: self; recruiter: only applicants to their jobs
+  PATCH  /candidates/<id>                 — self
+  DELETE /candidates/<id>                 — self (soft delete)
+  GET    /candidates/<id>/resumes         — candidate: all own; recruiter: those attached to applications to their jobs
+  POST   /candidates/<id>/resumes         — upload a resume (self)
+  GET    /candidates/<id>/skill-gaps      — self
+  GET    /candidates/<id>/win-rate-insights — self
 
-All other routes (list, get, update, delete, recommendations, skill-gaps,
-win-rate-insights) are unchanged from the original.
+Uploads go through StorageService (Cloudinary or local disk); the file bytes
+are read once and used for both storage and parsing.
 """
 
 import logging
@@ -22,8 +21,13 @@ import uuid
 from flask import Blueprint, current_app, request
 
 from app.core.responses import created, error, no_content, success, success_list
-from app.core.security import require_auth, require_ownership
-from app.schemas.candidate import CandidateQuerySchema, UpdateCandidateSchema
+from app.core.security import (
+    assert_candidate_applied_to_recruiter,
+    get_current_user,
+    require_auth,
+    require_ownership,
+)
+from app.schemas.candidate import UpdateCandidateSchema
 from app.core.database import db
 from app.core.exceptions import ResumeUploadFailed
 from app.models.refresh_token import RefreshToken
@@ -32,7 +36,6 @@ from app.utils.file_helpers import validate_upload
 from ._helpers import (
     get_services,
     parse_body,
-    parse_query,
     serialize_candidate,
     serialize_resume,
 )
@@ -45,62 +48,25 @@ _ALLOWED_EXTENSIONS = {"pdf", "docx"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# List
-# ─────────────────────────────────────────────────────────────────────────────
-
-@candidates_bp.get("/")
-@require_auth("recruiter")
-def list_candidates():
-    """
-    GET /api/v1/candidates/
-    Recruiter-only — recruiters discover candidates for sourcing.
-    Query params: page, limit, search, open_to_work, location
-    """
-    params, err = parse_query(CandidateQuerySchema)
-    if err:
-        return err
-
-    try:
-        from app.repositories import CandidateRepository
-        repo = CandidateRepository()
-        items, total = repo.list_active(
-            page=params["page"],
-            limit=params["limit"],
-            search=params.get("search"),
-            open_to_work=params.get("open_to_work"),
-            location=params.get("location"),
-        )
-        return success_list(
-            data=[serialize_candidate(c) for c in items],
-            total=total,
-            page=params["page"],
-            limit=params["limit"],
-            message="Candidates retrieved.",
-        )
-    except Exception:
-        logger.error("list_candidates failed", exc_info=True)
-        return error("Failed to retrieve candidates.", code="INTERNAL_ERROR", status=500)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Single resource
 # ─────────────────────────────────────────────────────────────────────────────
 
 @candidates_bp.get("/<candidate_id>")
 @require_auth("candidate", "recruiter")
 def get_candidate(candidate_id: str):
-    from app.core.security import get_current_user
     user_id, role = get_current_user()
 
     if role == "candidate" and user_id != candidate_id:
         return error("You can only view your own profile.", code="FORBIDDEN", status=403)
+    if role == "recruiter":
+        assert_candidate_applied_to_recruiter(candidate_id, user_id)
 
     try:
-        from app.repositories import CandidateRepository
+        from app.repositories import CandidateRepository, ResumeRepository
         repo = CandidateRepository()
-        candidate = repo.get_with_resumes(candidate_id)
+        candidate = repo.get_active_by_id(candidate_id)
 
-        if not candidate or not getattr(candidate, "is_active", True):
+        if not candidate:
             return error(
                 f"Candidate '{candidate_id}' not found.",
                 code="CANDIDATE_NOT_FOUND",
@@ -108,12 +74,15 @@ def get_candidate(candidate_id: str):
             )
 
         data = serialize_candidate(candidate)
-        resumes = candidate.resumes
-        if not isinstance(resumes, list):
-            resumes = [resumes] if resumes else []
-
-        active_resumes = [r for r in resumes if r.is_active]
-        data["resumes"] = [serialize_resume(r) for r in active_resumes]
+        if role == "recruiter":
+            resumes, _ = ResumeRepository().list_for_recruiter(
+                candidate_id, user_id, active_only=True, limit=100
+            )
+        else:
+            resumes, _ = ResumeRepository().list_by_candidate(
+                candidate_id, active_only=True, limit=100
+            )
+        data["resumes"] = [serialize_resume(r) for r in resumes]
 
         return success(data=data, message="Candidate retrieved.")
     except Exception:
@@ -132,9 +101,9 @@ def update_candidate(candidate_id: str):
     try:
         from app.repositories import CandidateRepository
         repo = CandidateRepository()
-        candidate = repo.get_by_id(candidate_id)
+        candidate = repo.get_active_by_id(candidate_id)
 
-        if not candidate or not getattr(candidate, "is_active", True):
+        if not candidate:
             return error(
                 f"Candidate '{candidate_id}' not found.",
                 code="CANDIDATE_NOT_FOUND",
@@ -169,9 +138,9 @@ def delete_candidate(candidate_id: str):
     try:
         from app.repositories import CandidateRepository
         repo = CandidateRepository()
-        candidate = repo.get_by_id(candidate_id)
+        candidate = repo.get_active_by_id(candidate_id)
 
-        if not candidate or not getattr(candidate, "is_active", True):
+        if not candidate:
             return error(
                 f"Candidate '{candidate_id}' not found.",
                 code="CANDIDATE_NOT_FOUND",
@@ -194,30 +163,36 @@ def delete_candidate(candidate_id: str):
 @candidates_bp.get("/<candidate_id>/resumes")
 @require_auth("candidate", "recruiter")
 def list_candidate_resumes(candidate_id: str):
-    from app.core.security import get_current_user
     user_id, role = get_current_user()
 
     if role == "candidate" and user_id != candidate_id:
         return error("You can only view your own resumes.", code="FORBIDDEN", status=403)
+    if role == "recruiter":
+        assert_candidate_applied_to_recruiter(candidate_id, user_id)
 
     page  = int(request.args.get("page", 1))
     limit = min(int(request.args.get("limit", 20)), 100)
 
     try:
         from app.repositories import CandidateRepository, ResumeRepository
-        if not CandidateRepository().get_by_id(candidate_id):
+        if not CandidateRepository().get_active_by_id(candidate_id):
             return error(
                 f"Candidate '{candidate_id}' not found.",
                 code="CANDIDATE_NOT_FOUND",
                 status=404,
             )
 
-        items, total = ResumeRepository().list_by_candidate(
-            candidate_id=candidate_id,
-            active_only=False,
-            page=page,
-            limit=limit,
-        )
+        if role == "recruiter":
+            items, total = ResumeRepository().list_for_recruiter(
+                candidate_id=candidate_id, recruiter_id=user_id, page=page, limit=limit,
+            )
+        else:
+            items, total = ResumeRepository().list_by_candidate(
+                candidate_id=candidate_id,
+                active_only=False,
+                page=page,
+                limit=limit,
+            )
         return success_list(
             data=[serialize_resume(r) for r in items],
             total=total, page=page, limit=limit,
@@ -234,7 +209,7 @@ def list_candidate_resumes(candidate_id: str):
 
 @candidates_bp.post("/<candidate_id>/resumes")
 @require_auth("candidate")
-@require_ownership("candidate_id")          # restored — was commented out
+@require_ownership("candidate_id")
 def upload_resume(candidate_id: str):
     """
     POST /api/v1/candidates/<candidate_id>/resumes
@@ -254,7 +229,7 @@ def upload_resume(candidate_id: str):
     # ── 1. Candidate existence check ──────────────────────────────────────────
     try:
         from app.repositories import CandidateRepository
-        if not CandidateRepository().get_by_id(candidate_id):
+        if not CandidateRepository().get_active_by_id(candidate_id):
             return error(
                 f"Candidate '{candidate_id}' not found.",
                 code="CANDIDATE_NOT_FOUND",
@@ -417,56 +392,6 @@ def upload_resume(candidate_id: str):
             else "Resume uploaded. Parsing encountered issues."
         ),
     )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Job recommendations
-# ─────────────────────────────────────────────────────────────────────────────
-
-@candidates_bp.post("/<candidate_id>/recommendations")
-@require_auth("candidate")
-@require_ownership("candidate_id")
-def get_job_recommendations(candidate_id: str):
-    body      = request.get_json(silent=True) or {}
-    top_n     = min(max(int(body.get("top_n", 10)), 1), 50)
-    min_score = min(max(float(body.get("min_score", 0.0)), 0.0), 1.0)
-    location  = body.get("location")
-    job_type  = body.get("job_type")
-
-    try:
-        from app.repositories import CandidateRepository, ResumeRepository
-        candidate = CandidateRepository().get_by_id(candidate_id)
-        if not candidate:
-            return error(
-                f"Candidate '{candidate_id}' not found.",
-                code="CANDIDATE_NOT_FOUND",
-                status=404,
-            )
-
-        resume = ResumeRepository().get_active_resume(candidate_id)
-        if not resume:
-            return error(
-                "No parsed resume found. Upload a resume first.",
-                code="NO_ACTIVE_RESUME",
-                status=404,
-            )
-
-        svcs = get_services()
-        recs = svcs.job_recommendations.recommend(
-            resume=resume,
-            top_n=top_n,
-            min_score=min_score,
-            location_filter=location,
-            job_type_filter=job_type,
-        )
-
-        return success(
-            data=[r.__dict__ for r in recs],
-            message=f"{len(recs)} job recommendations retrieved.",
-        )
-    except Exception:
-        logger.error("get_job_recommendations failed", exc_info=True)
-        return error("Failed to retrieve recommendations.", code="INTERNAL_ERROR", status=500)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

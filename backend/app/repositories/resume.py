@@ -58,6 +58,47 @@ class ResumeRepository(BaseRepository[Resume]):
         )
         return items, total
 
+    def list_for_recruiter(
+        self,
+        candidate_id: str,
+        recruiter_id: str,
+        active_only: bool = False,
+        page: int = 1,
+        limit: int = 20,
+    ) -> tuple[list[Resume], int]:
+        """
+        A candidate's resumes that are attached to applications to this
+        recruiter's jobs, newest first. Nothing else of the candidate's is
+        visible to the recruiter.
+        """
+        from app.models.application import Application
+        from app.models.job import Job
+
+        query = (
+            db.session.query(Resume)
+            .join(Application, Application.resume_id == Resume.id)
+            .join(Job, Job.id == Application.job_id)
+            .filter(
+                Resume.candidate_id == candidate_id,
+                Resume.is_deleted == False,          # noqa: E712
+                Job.recruiter_id == recruiter_id,
+                Job.is_deleted == False,             # noqa: E712
+            )
+            .distinct()
+        )
+        if active_only:
+            query = query.filter(Resume.is_active == True)  # noqa: E712
+
+        total = query.count()
+        items = (
+            query
+            .order_by(Resume.created_at.desc())
+            .offset((page - 1) * limit)
+            .limit(limit)
+            .all()
+        )
+        return items, total
+
     def get_active_resume(self, candidate_id: str) -> Resume | None:
         """Get the most recent active parsed resume for a candidate."""
         return (
