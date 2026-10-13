@@ -26,6 +26,14 @@ class RecruiterRepository(BaseRepository[Recruiter]):
             .first()
         )
 
+    def get_active_by_id(self, recruiter_id: str) -> Recruiter | None:
+        """Fetch a recruiter that is active and not deleted."""
+        return (
+            self.base_query()
+            .filter(Recruiter.id == recruiter_id, Recruiter.is_active == True)  # noqa: E712
+            .first()
+        )
+
     def email_exists(self, email: str) -> bool:
         return self.get_by_email(email) is not None
 
