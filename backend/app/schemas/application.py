@@ -10,7 +10,6 @@ from app.models.application import APPLICATION_STAGES
 
 class CreateApplicationSchema(BaseSchema):
     """Validates POST /api/v1/applications body."""
-    candidate_id = fields.String(required=True)
     job_id       = fields.String(required=True)
     resume_id    = fields.String(required=True)
     cover_letter = fields.String(load_default=None, validate=validate.Length(max=5000))
@@ -28,5 +27,4 @@ class ApplicationQuerySchema(BaseSchema):
     page         = fields.Integer(load_default=1,  validate=validate.Range(min=1))
     limit        = fields.Integer(load_default=20, validate=validate.Range(min=1, max=100))
     job_id       = fields.String(load_default=None)
-    candidate_id = fields.String(load_default=None)
     stage        = fields.String(load_default=None, validate=validate.OneOf(APPLICATION_STAGES))

@@ -5,6 +5,7 @@ Shared utilities used by all route handlers.
 
 Provides:
   - get_owned_job()        — load a job the authenticated recruiter owns
+  - get_viewable_application() — load an application the user may act on
   - get_services()         — fetch Services dataclass from app.extensions
   - parse_body()           — load + validate JSON body via Marshmallow schema
   - parse_query()          — load + validate query params via Marshmallow schema
@@ -63,6 +64,32 @@ def get_owned_job(job_id: str):
             return None, error(f"Job '{job_id}' not found.", code="JOB_NOT_FOUND", status=404)
         return None, error(str(exc), code=exc.code, status=exc.status)
     return job, None
+
+
+def get_viewable_application(application_id: str):
+    """
+    Load an application the authenticated user may act on: the candidate who
+    applied, or the recruiter who owns the job.
+
+    Returns (application, None), or (None, error_response): 404 if it does
+    not exist, 403 for anyone else.
+    """
+    from app.core.security import AuthError, assert_can_view_application
+    from app.repositories import ApplicationRepository
+
+    application = ApplicationRepository().get_by_id(application_id)
+    if not application:
+        return None, error(
+            f"Application '{application_id}' not found.",
+            code="APPLICATION_NOT_FOUND",
+            status=404,
+        )
+
+    try:
+        assert_can_view_application(application, g.jwt_user_id, g.jwt_role)
+    except AuthError as exc:
+        return None, error(str(exc), code=exc.code, status=exc.status)
+    return application, None
 
 
 # ─────────────────────────────────────────────────────────────────────────────

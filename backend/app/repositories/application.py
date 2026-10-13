@@ -35,23 +35,6 @@ class ApplicationRepository(BaseRepository[Application]):
     def application_exists(self, candidate_id: str, job_id: str) -> bool:
         return self.get_by_candidate_and_job(candidate_id, job_id) is not None
 
-    def list_all(self, stage=None, page=1, limit=20):
-        query = db.session.query(Application).options(
-            joinedload(Application.job),
-            joinedload(Application.ats_score),
-        )
-        if stage:
-            query = query.filter(Application.stage == stage)
-        total = query.count()
-        items = (
-            query
-            .order_by(Application.created_at.desc())
-            .offset((page - 1) * limit)
-            .limit(limit)
-            .all()
-        )
-        return items, total
-
     def list_by_job(self, job_id, stage=None, page=1, limit=20):
         query = (
             db.session.query(Application)

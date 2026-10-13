@@ -3,21 +3,23 @@ app/api/v1/applications.py
 
 Applications resource — candidate applies to job, recruiters advance stages.
 
-Routes:
-  GET    /applications/              — list (filter by job_id, candidate_id, stage)
-  POST   /applications/              — submit application (candidate → job)
-  GET    /applications/<id>          — get single application
-  PATCH  /applications/<id>/stage    — advance application stage (recruiter action)
-  DELETE /applications/<id>          — withdraw application (candidate action)
-  POST   /applications/<id>/score    — trigger/refresh ATS score for this application
+Routes (all need a token):
+  GET    /applications/              — candidate: own applications; recruiter: those for ?job_id= (own job)
+  POST   /applications/              — submit application                      [candidate]
+  GET    /applications/<id>          — get single application                  [applicant, or the job's recruiter]
+  PATCH  /applications/<id>/stage    — advance application stage               [the job's recruiter]
+  DELETE /applications/<id>          — withdraw application                    [the applicant]
+  POST   /applications/<id>/score    — trigger/refresh ATS score               [the job's recruiter]
+  GET    /applications/<id>/ai-summary — AI summary of the candidate           [the job's recruiter]
 """
 
 import logging
 import uuid
 
-from flask import Blueprint, request
+from flask import Blueprint, g, request
 
 from app.core.responses import created, error, no_content, success, success_list
+from app.core.security import require_auth
 from app.schemas.application import (
     ApplicationQuerySchema,
     CreateApplicationSchema,
@@ -25,7 +27,9 @@ from app.schemas.application import (
 )
 
 from ._helpers import (
+    get_owned_job,
     get_services,
+    get_viewable_application,
     parse_body,
     parse_query,
     serialize_application,
@@ -42,18 +46,19 @@ applications_bp = Blueprint("applications", __name__)
 # ─────────────────────────────────────────────────────────────────────────────
 
 @applications_bp.get("/")
+@require_auth()
 def list_applications():
     """
     GET /api/v1/applications/
 
-    Query params: page, limit, job_id, candidate_id, stage
+    A candidate gets their own applications. A recruiter must pass ?job_id=
+    for one of their own jobs. Query params: page, limit, job_id, stage.
     """
     params, err = parse_query(ApplicationQuerySchema)
     if err:
         return err
 
     job_id       = params.get("job_id")
-    candidate_id = params.get("candidate_id")
     stage        = params.get("stage")
     page, limit  = params["page"], params["limit"]
 
@@ -61,17 +66,19 @@ def list_applications():
         from app.repositories import ApplicationRepository
         repo = ApplicationRepository()
 
-        if job_id:
+        if g.jwt_role == "candidate":
+            items, total = repo.list_by_candidate(
+                candidate_id=g.jwt_user_id, stage=stage, page=page, limit=limit
+            )
+        else:
+            if not job_id:
+                return error("job_id is required.", code="VALIDATION_ERROR", status=400)
+            _, err = get_owned_job(job_id)
+            if err:
+                return err
             items, total = repo.list_by_job(
                 job_id=job_id, stage=stage, page=page, limit=limit
             )
-        elif candidate_id:
-            items, total = repo.list_by_candidate(
-                candidate_id=candidate_id, stage=stage, page=page, limit=limit
-            )
-        else:
-            logger.warning("list_applications called without job_id or candidate_id filter")
-            items, total = repo.list_all(page=page, limit=limit, stage=stage)
 
         return success_list(
             data=[serialize_application(a) for a in items],
@@ -88,17 +95,18 @@ def list_applications():
 # ─────────────────────────────────────────────────────────────────────────────
 
 @applications_bp.post("/")
+@require_auth("candidate")
 def create_application():
     """
     POST /api/v1/applications/
 
-    Body: { candidate_id, job_id, resume_id, cover_letter? }
+    Body: { job_id, resume_id, cover_letter? } — the candidate is the caller.
     """
     data, err = parse_body(CreateApplicationSchema)
     if err:
         return err
 
-    candidate_id = data["candidate_id"]
+    candidate_id = g.jwt_user_id
     job_id       = data["job_id"]
     resume_id    = data["resume_id"]
 
@@ -112,8 +120,8 @@ def create_application():
         from app.models.application import Application
         from app.models.enums import ApplicationStage, JobStatus
 
-        candidate = CandidateRepository().get_by_id(candidate_id)
-        if not candidate or getattr(candidate, "is_deleted", False):
+        candidate = CandidateRepository().get_active_by_id(candidate_id)
+        if not candidate:
             return error(f"Candidate '{candidate_id}' not found.", code="CANDIDATE_NOT_FOUND", status=404)
 
         job = JobRepository().get_by_id(job_id)
@@ -216,18 +224,14 @@ def create_application():
 # ─────────────────────────────────────────────────────────────────────────────
 
 @applications_bp.get("/<application_id>")
+@require_auth("candidate", "recruiter")
 def get_application(application_id: str):
     """GET /api/v1/applications/<application_id>"""
     try:
-        from app.repositories import ApplicationRepository, AtsScoreRepository
-        application = ApplicationRepository().get_by_id(application_id)
-
-        if not application:
-            return error(
-                f"Application '{application_id}' not found.",
-                code="APPLICATION_NOT_FOUND",
-                status=404,
-            )
+        from app.repositories import AtsScoreRepository
+        application, err = get_viewable_application(application_id)
+        if err:
+            return err
 
         data = serialize_application(application)
 
@@ -252,13 +256,15 @@ def get_application(application_id: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @applications_bp.patch("/<application_id>/stage")
+@require_auth("recruiter")
 def update_application_stage(application_id: str):
     """
     PATCH /api/v1/applications/<application_id>/stage
 
-    Advance or move the application to a new recruitment stage.
+    Advance or move the application to a new recruitment stage. The change
+    is recorded against the authenticated recruiter.
 
-    Body: { stage, recruiter_notes?, rejection_reason?, actor_id? }
+    Body: { stage, recruiter_notes?, rejection_reason? }
     Valid stages: applied → screening → interview → offer → hired | rejected
 
     Goes through Application.advance_stage(), which enforces
@@ -271,18 +277,12 @@ def update_application_stage(application_id: str):
 
     try:
         from app.repositories import ApplicationRepository
-        from app.core.security import current_account
         from app.models.enums import ApplicationStage
 
         repo        = ApplicationRepository()
-        application = repo.get_by_id(application_id)
-
-        if not application:
-            return error(
-                f"Application '{application_id}' not found.",
-                code="APPLICATION_NOT_FOUND",
-                status=404,
-            )
+        application, err = get_viewable_application(application_id)
+        if err:
+            return err
 
         if application.is_terminal:
             return error(
@@ -304,9 +304,7 @@ def update_application_stage(application_id: str):
                 status=400,
             )
 
-        actor_id = data.get("actor_id") or getattr(
-            current_account(), "id", None
-        )
+        actor_id = g.jwt_user_id
         try:
             application.advance_stage(new_stage, actor_id=actor_id)
         except ValueError as exc:
@@ -333,6 +331,7 @@ def update_application_stage(application_id: str):
 
 
 @applications_bp.delete("/<application_id>")
+@require_auth("candidate")
 def withdraw_application(application_id: str):
     """
     DELETE /api/v1/applications/<application_id>
@@ -344,14 +343,9 @@ def withdraw_application(application_id: str):
         from app.models.enums import ApplicationStage
 
         repo        = ApplicationRepository()
-        application = repo.get_by_id(application_id)
-
-        if not application:
-            return error(
-                f"Application '{application_id}' not found.",
-                code="APPLICATION_NOT_FOUND",
-                status=404,
-            )
+        application, err = get_viewable_application(application_id)
+        if err:
+            return err
 
         current_stage = getattr(application.stage, "value", str(application.stage))
         if current_stage in ("hired", "rejected"):
@@ -391,6 +385,7 @@ def withdraw_application(application_id: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @applications_bp.post("/<application_id>/score")
+@require_auth("recruiter")
 def score_application(application_id: str):
     """
     POST /api/v1/applications/<application_id>/score
@@ -401,15 +396,11 @@ def score_application(application_id: str):
     use_llm = bool(body.get("use_llm", True))
 
     try:
-        from app.repositories import ApplicationRepository, ResumeRepository, JobRepository
+        from app.repositories import ResumeRepository, JobRepository
 
-        application = ApplicationRepository().get_by_id(application_id)
-        if not application:
-            return error(
-                f"Application '{application_id}' not found.",
-                code="APPLICATION_NOT_FOUND",
-                status=404,
-            )
+        application, err = get_viewable_application(application_id)
+        if err:
+            return err
 
         resume = ResumeRepository().get_by_id(application.resume_id)
         job    = JobRepository().get_by_id(application.job_id)
@@ -464,16 +455,15 @@ def score_application(application_id: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @applications_bp.get("/<application_id>/ai-summary")
+@require_auth("recruiter")
 def get_ai_summary(application_id: str):
     """GET /api/v1/applications/<application_id>/ai-summary"""
     try:
-        from app.repositories import ApplicationRepository, AtsScoreRepository, ResumeRepository
-        from app.core.security import get_current_user
+        from app.repositories import AtsScoreRepository, ResumeRepository
 
-        app_repo = ApplicationRepository()
-        application = app_repo.get_by_id(application_id)
-        if not application:
-            return error("Application not found.", code="APPLICATION_NOT_FOUND", status=404)
+        application, err = get_viewable_application(application_id)
+        if err:
+            return err
 
         score = AtsScoreRepository().get_by_resume_and_job(
             resume_id=application.resume_id,

@@ -22,8 +22,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
-def _post(client, url, body):
-    r = client.post(url, data=json.dumps(body), content_type="application/json")
+def _post(client, url, body, headers=None):
+    r = client.post(url, data=json.dumps(body), content_type="application/json", headers=headers)
     return r, r.get_json()
 
 
@@ -126,25 +126,23 @@ class TestCandidateJourneyE2E:
         assert client.delete(f"/api/v1/candidates/{candidate_id}").status_code == 204
         assert client.get(f"/api/v1/candidates/{candidate_id}").status_code == 404
 
-    def test_duplicate_application_blocked(self, client, db, mock_services,
+    def test_duplicate_application_blocked(self, client, db, mock_services, headers_for,
                                            sample_candidate, sample_job, sample_resume,
                                            sample_application):
         """Second application to same job from same candidate must return 409."""
         mock_services.ats_scorer.score_resume_job.return_value.error = None
         r, body = _post(client, "/api/v1/applications/", {
-            "candidate_id": sample_application.candidate_id,
             "job_id":       sample_application.job_id,
             "resume_id":    sample_application.resume_id,
-        })
+        }, headers=headers_for(sample_candidate))
         assert r.status_code == 409
 
-    def test_closed_job_blocks_application(self, client, db, mock_services,
+    def test_closed_job_blocks_application(self, client, db, mock_services, headers_for,
                                            sample_candidate, sample_job_closed, sample_resume):
         """Submitting to a closed job must return 422 JOB_NOT_ACTIVE."""
         r, body = _post(client, "/api/v1/applications/", {
-            "candidate_id": sample_candidate.id,
             "job_id":       sample_job_closed.id,
             "resume_id":    sample_resume.id,
-        })
+        }, headers=headers_for(sample_candidate))
         assert r.status_code == 422
         assert body["error"]["error_code"] == "JOB_NOT_ACTIVE"
