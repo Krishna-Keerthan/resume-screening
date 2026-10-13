@@ -93,11 +93,11 @@ class CandidateRepository(BaseRepository[Candidate]):
         return items, total
 
     def get_with_resumes(self, candidate_id: str) -> Candidate | None:
-        """Fetch candidate with resumes eagerly loaded."""
+        """Fetch a non-deleted candidate with resumes eagerly loaded."""
         from sqlalchemy.orm import joinedload
         return (
             db.session.query(Candidate)
             .options(joinedload(Candidate.resumes))
-            .filter(Candidate.id == candidate_id)
+            .filter(Candidate.id == candidate_id, Candidate.is_deleted == False)  # noqa: E712
             .first()
         )

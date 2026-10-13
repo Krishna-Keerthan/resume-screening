@@ -196,3 +196,18 @@ def test_deleting_a_candidate_twice_is_rejected_the_second_time(
     url = f"/api/v1/candidates/{candidate_a.id}"
     assert client.delete(url, headers=headers).status_code == 204
     assert client.delete(url, headers=headers).status_code == 401
+
+
+def test_recruiter_cannot_read_a_deleted_candidate(
+    client, candidate_a, recruiter_a, headers_for, resume_a
+):
+    url = f"/api/v1/candidates/{candidate_a.id}"
+    assert client.get(url, headers=headers_for(recruiter_a)).status_code == 200
+
+    candidate_a.soft_delete()
+    from app.core.database import db
+    db.session.commit()
+
+    r = client.get(url, headers=headers_for(recruiter_a))
+    assert r.status_code == 404
+    assert r.get_json()["error"]["error_code"] == "CANDIDATE_NOT_FOUND"
