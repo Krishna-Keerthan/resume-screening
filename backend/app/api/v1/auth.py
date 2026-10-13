@@ -108,6 +108,19 @@ def _store_refresh_token(jti: str, raw_refresh: str, user_id: str, role: str) ->
     rt.save()   # flush only
 
 
+def _reject_dead_session(stored):
+    """Revoke the presented refresh token and answer 401 for an account that can no longer hold a session."""
+    stored.revoke()
+    db.session.commit()
+    resp = make_response(*error(
+        "Session is no longer valid. Please log in again.",
+        code="TOKEN_INVALID",
+        status=401,
+    ))
+    _clear_refresh_cookie(resp)
+    return resp
+
+
 def _auth_response(user_dict: dict, role: str, status: int = 200):
     """
     Build the standard auth success response.
@@ -443,16 +456,14 @@ def refresh():
         if role == "candidate":
             from app.repositories import CandidateRepository
             user = CandidateRepository().get_by_id(user_id)
-            if not user or not getattr(user, "is_active", True):
-                db.session.rollback()
-                return error("Account not found.", code="USER_NOT_FOUND", status=404)
+            if not account_is_usable(user):
+                return _reject_dead_session(stored)
             user_dict = serialize_candidate(user)
         else:
             from app.repositories import RecruiterRepository
             user = RecruiterRepository().get_by_id(user_id)
-            if not user or not getattr(user, "is_active", True):
-                db.session.rollback()
-                return error("Account not found.", code="USER_NOT_FOUND", status=404)
+            if not account_is_usable(user):
+                return _reject_dead_session(stored)
             user_dict = serialize_recruiter(user)
 
         # 2️⃣ Create new refresh token

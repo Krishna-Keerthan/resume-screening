@@ -76,3 +76,49 @@ def test_login_rejects_deleted_and_inactive_accounts(client, account, state, acc
     assert r.status_code == 401
     assert r.get_json()["error"]["error_code"] == "INVALID_CREDENTIALS"
     assert COOKIE not in "".join(r.headers.getlist("Set-Cookie"))
+
+
+# ─── Account status: refresh ──────────────────────────────────────────────────
+
+def _cleared(response) -> bool:
+    cookies = [h for h in response.headers.getlist("Set-Cookie") if h.startswith(f"{COOKIE}=")]
+    return bool(cookies) and cookies[0].startswith(f'{COOKIE}=;') and "Max-Age=0" in cookies[0]
+
+
+@pytest.mark.parametrize("state", _DEAD_STATES)
+@pytest.mark.parametrize("account", ["candidate", "recruiter"], indirect=True)
+def test_refresh_rejects_a_dead_account_and_revokes_its_token(
+    client, account, state, account_password
+):
+    from app.models.refresh_token import RefreshToken
+
+    user, role = account
+    raw = _refresh_cookie(_login(client, user, role, account_password))
+    _kill(user, state)
+
+    r = client.post(f"{BASE}/refresh", headers=_cookie_header(raw))
+
+    assert r.status_code == 401
+    assert "access_token" not in (r.get_json().get("data") or {})
+    assert _cleared(r)
+    assert RefreshToken.get_by_hash(raw).revoked is True
+
+    # The revoked token is now dead for good, even if the account came back.
+    again = client.post(f"{BASE}/refresh", headers=_cookie_header(raw))
+    assert again.status_code == 401
+
+
+def test_refresh_token_is_dead_after_change_password(
+    client, candidate_a, account_password
+):
+    login = _login(client, candidate_a, "candidate", account_password)
+    raw = _refresh_cookie(login)
+    token = login.get_json()["data"]["access_token"]
+
+    r = client.post(f"{BASE}/change-password",
+                    json={"current_password": account_password, "new_password": "NewSecure@123"},
+                    headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.get_json()
+
+    after = client.post(f"{BASE}/refresh", headers=_cookie_header(raw))
+    assert after.status_code == 401
