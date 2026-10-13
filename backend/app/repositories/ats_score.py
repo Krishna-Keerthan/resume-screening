@@ -150,55 +150,6 @@ class AtsScoreRepository(BaseRepository[AtsScore]):
         )
         return items, total
 
-    def list_filtered(
-        self,
-        page: int = 1,
-        limit: int = 20,
-        resume_id: str | None = None,
-        job_id: str | None = None,
-        min_score: float | None = None,
-        max_score: float | None = None,
-        score_label: str | None = None,
-    ) -> tuple[list[AtsScore], int]:
-        """
-        Paginated, multi-filter query for stored ATS scores.
-
-        Args:
-            page:        1-based page number.
-            limit:       Records per page (capped by caller's MAX_PAGE_SIZE).
-            resume_id:   Filter by resume UUID (optional).
-            job_id:      Filter by job UUID (optional).
-            min_score:   Lower bound on final_score, inclusive (optional).
-            max_score:   Upper bound on final_score, inclusive (optional).
-            score_label: Exact match on score_label enum value (optional).
-
-        Returns:
-            (items, total) — list of AtsScore ORM objects and total count
-            before pagination.
-        """
-        query = db.session.query(AtsScore)
-
-        if resume_id:
-            query = query.filter(AtsScore.resume_id == resume_id)
-        if job_id:
-            query = query.filter(AtsScore.job_id == job_id)
-        if min_score is not None:
-            query = query.filter(AtsScore.final_score >= min_score)
-        if max_score is not None:
-            query = query.filter(AtsScore.final_score <= max_score)
-        if score_label:
-            query = query.filter(AtsScore.score_label == score_label)
-
-        total = query.count()
-        items = (
-            query
-            .order_by(AtsScore.final_score.desc(), AtsScore.created_at.desc())
-            .offset((page - 1) * limit)
-            .limit(limit)
-            .all()
-        )
-        return items, total
-    
     def get_missing_skills_for_candidate(self, candidate_id: str) -> list[str]:
         """Aggregate all missing skills from a candidate's ATS scores."""
         from app.models.application import Application

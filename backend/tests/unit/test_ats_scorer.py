@@ -53,13 +53,13 @@ class TestPreviewMatchesSavedScore:
         saved = ats_scorer.score_resume_job(sample_resume, sample_job, use_llm=False)
         assert r.get_json()["data"]["final_score"] == saved.final_score
 
-    def test_scores_match_preview(self, client, json_post, ats_scorer, mock_services,
-                                  sample_resume, sample_job):
+    def test_scores_match_preview(self, client, json_post, ats_scorer, mock_services, headers_for,
+                                  sample_candidate, sample_resume, sample_job):
         sample_resume.oov_skills_list_parsed = ["Flask-RESTX"]
         self._use_real_scorer(mock_services, ats_scorer)
         r, body = json_post("/api/v1/scores/match", {
             "resume_id": sample_resume.id, "job_id": sample_job.id, "save_result": False,
-        })
+        }, headers=headers_for(sample_candidate))
         assert r.status_code == 200
         saved = ats_scorer.score_resume_job(sample_resume, sample_job, use_llm=False)
         assert body["data"]["final_score"] == saved.final_score

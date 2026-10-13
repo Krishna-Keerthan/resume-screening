@@ -8,6 +8,7 @@ Provides:
   - get_viewable_application() — load an application the user may act on
   - get_owned_resume() / get_viewable_resume() — load a resume the user owns / may read
   - get_active_job()       — load a job that is open for applications
+  - get_scorable_pair() / get_viewable_score() — load what the user may score / read
   - get_services()         — fetch Services dataclass from app.extensions
   - parse_body()           — load + validate JSON body via Marshmallow schema
   - parse_query()          — load + validate query params via Marshmallow schema
@@ -154,6 +155,66 @@ def get_active_job(job_id: str):
     if job and not job.is_deleted and getattr(job.status, "value", job.status) == JobStatus.ACTIVE.value:
         return job, None
     return None, error(f"Job '{job_id}' not found.", code="JOB_NOT_FOUND", status=404)
+
+
+def get_scorable_pair(resume_id: str, job_id: str):
+    """
+    Load a resume and a job the authenticated user may score against each other.
+
+    A candidate: their own resume and a job that is open for applications.
+    A recruiter: their own job and a resume submitted to that job.
+
+    Returns (resume, job, None), or (None, None, error_response).
+    """
+    from app.core.database import db
+    from app.models.application import Application
+    from app.repositories import ResumeRepository
+
+    if g.jwt_role == "candidate":
+        resume, err = get_owned_resume(resume_id)
+        if err:
+            return None, None, err
+        job, err = get_active_job(job_id)
+        if err:
+            return None, None, err
+        return resume, job, None
+
+    job, err = get_owned_job(job_id)
+    if err:
+        return None, None, err
+    resume = ResumeRepository().get_by_id(resume_id)
+    if not resume or resume.is_deleted:
+        return None, None, error(f"Resume '{resume_id}' not found.", code="RESUME_NOT_FOUND", status=404)
+    submitted = (
+        db.session.query(Application.id)
+        .filter(Application.resume_id == resume.id, Application.job_id == job.id)
+        .first()
+    )
+    if submitted is None:
+        return None, None, error(
+            "Access denied — this resume was not submitted to this job.", code="FORBIDDEN", status=403,
+        )
+    return resume, job, None
+
+
+def get_viewable_score(score_id: str):
+    """
+    Load a stored ATS score the authenticated user may read: the candidate
+    who owns the scored resume, or the recruiter who owns the scored job.
+
+    Returns (score, None), or (None, error_response): 404 / 403.
+    """
+    from app.core.security import AuthError, assert_can_view_score
+    from app.repositories import AtsScoreRepository
+
+    score = AtsScoreRepository().get_by_id(score_id)
+    if not score:
+        return None, error(f"ATS score '{score_id}' not found.", code="SCORE_NOT_FOUND", status=404)
+    try:
+        assert_can_view_score(score, g.jwt_user_id, g.jwt_role)
+    except AuthError as exc:
+        return None, error(str(exc), code=exc.code, status=exc.status)
+    return score, None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
