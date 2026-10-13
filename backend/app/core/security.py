@@ -3,17 +3,11 @@ app/core/security.py
 
 JWT authentication core.
 
-IMPROVEMENTS APPLIED:
-  SE-01 — Added assert_owns() ownership assertion helper.
-           Ownership checks (does this candidate own this resume?) were
-           copy-pasted across 8+ route handlers, each with slightly different
-           error messages and response shapes. Centralised here as a single
-           helper that raises AuthError with a consistent 403 payload.
-
 Architecture
 ───────────
 Access token  — short-lived (15 min), sent in Authorization: Bearer <token>
-                Stateless; verified purely by signature.
+                Verified by signature; require_auth also loads the account and
+                rejects missing, inactive and deleted ones.
 
 Refresh token — long-lived (7 days), stored as SHA-256 hash in DB.
                 Revocable on logout, password change, or suspicious activity.
@@ -35,7 +29,9 @@ Public API
   decode_access_token(token)              → payload dict  / raises AuthError
   require_auth(*roles)                    → Flask decorator
   get_current_user()                      → (user_id, role) from g
-  assert_owns(resource, user_id, msg?)   → raises AuthError(403) if mismatch
+  assert_owns(resource, user_id, owner_attr=...)  → raises AuthError(403) if mismatch
+  assert_can_view_application / assert_can_view_score
+  assert_recruiter_can_view_resume
   hash_password(plain)                    → hashed string
   verify_password(plain, hashed)          → bool
 """
@@ -312,60 +308,84 @@ def require_auth(*roles: str) -> Callable:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SE-01: Ownership assertion helper
+# Ownership assertions
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _forbidden(message: str = "Access denied.") -> AuthError:
+    return AuthError(message, code="FORBIDDEN", status=403)
+
 
 def assert_owns(
     resource: Any,
     user_id: str,
-    owner_attr: str = "candidate_id",
+    *,
+    owner_attr: str,
     message: str | None = None,
 ) -> None:
     """
     Assert that the authenticated user owns the given resource.
 
-    SE-01: Ownership checks were copy-pasted across 8+ route handlers.
-    Centralised here with a consistent AuthError(403) response.
-
-    Usage:
-        from app.core.security import assert_owns, AuthError
-
-        @bp.get("/<resume_id>")
-        @require_auth("candidate")
-        def get_resume(resume_id: str):
-            resume = ResumeRepository().get_by_id(resume_id)
-            try:
-                assert_owns(resume, g.jwt_user_id, owner_attr="candidate_id")
-            except AuthError as exc:
-                return error(str(exc), code=exc.code, status=exc.status)
-            ...
-
     Args:
         resource:    ORM model instance to check.
-        user_id:     UUID of the authenticated user (from g.jwt_user_id).
-        owner_attr:  Attribute on the resource that holds the owner's UUID.
+        user_id:     id of the authenticated user (g.jwt_user_id).
+        owner_attr:  Attribute on the resource that holds the owner's id.
         message:     Custom error message. Defaults to a generic ownership error.
 
     Raises:
-        AuthError(403): If the resource does not belong to user_id, or if
-                        the resource is None.
+        AuthError(403): If the resource is None, has no such attribute, or
+                        does not belong to user_id. The app turns an uncaught
+                        AuthError into a JSON error response.
     """
     if resource is None:
-        raise AuthError("Resource not found or access denied.", code="FORBIDDEN", status=403)
+        raise _forbidden("Resource not found or access denied.")
 
     owner_id = getattr(resource, owner_attr, None)
     if owner_id is None:
-        raise AuthError(
-            f"Resource has no '{owner_attr}' attribute — cannot verify ownership.",
-            code="FORBIDDEN",
-            status=403,
-        )
+        raise _forbidden(f"Resource has no '{owner_attr}' — cannot verify ownership.")
 
     if str(owner_id) != str(user_id):
-        msg = message or (
-            f"Access denied — this resource belongs to a different user."
-        )
-        raise AuthError(msg, code="FORBIDDEN", status=403)
+        raise _forbidden(message or "Access denied — this resource belongs to a different user.")
+
+
+def assert_can_view_application(application: Any, user_id: str, role: str) -> None:
+    """The candidate who applied, or the recruiter who owns the job, may view it."""
+    if application is None:
+        raise _forbidden("Resource not found or access denied.")
+    if role == "candidate" and str(application.candidate_id) == str(user_id):
+        return
+    if role == "recruiter" and str(application.job.recruiter_id) == str(user_id):
+        return
+    raise _forbidden("Access denied — you cannot view this application.")
+
+
+def assert_can_view_score(score: Any, user_id: str, role: str) -> None:
+    """The owner of the scored résumé, or the recruiter who owns the scored job, may view it."""
+    if score is None:
+        raise _forbidden("Resource not found or access denied.")
+    if role == "candidate" and str(score.resume.candidate_id) == str(user_id):
+        return
+    if role == "recruiter" and str(score.job.recruiter_id) == str(user_id):
+        return
+    raise _forbidden("Access denied — you cannot view this score.")
+
+
+def assert_recruiter_can_view_resume(resume: Any, recruiter_id: str) -> None:
+    """A recruiter may view a résumé only if it is attached to an application to one of their jobs."""
+    if resume is None:
+        raise _forbidden("Resource not found or access denied.")
+
+    from app.core.database import db
+    from app.models.application import Application
+    from app.models.job import Job
+
+    linked = (
+        db.session.query(Application.id)
+        .join(Job, Job.id == Application.job_id)
+        .filter(Application.resume_id == resume.id, Job.recruiter_id == recruiter_id)
+        .first()
+    )
+    if linked is None:
+        raise _forbidden("Access denied — this resume was not submitted to one of your jobs.")
 
 
 def require_ownership(id_param: str = "candidate_id") -> Callable:

@@ -186,6 +186,8 @@ def _register_error_handlers(app: Flask) -> None:
     matching the standard { success, error: { error_code, message } } shape.
     """
     from app.core.exceptions import AppError
+    from app.core.responses import error
+    from app.core.security import AuthError
 
     @app.errorhandler(AppError)
     def handle_app_error(exc: AppError) -> tuple:
@@ -199,6 +201,11 @@ def _register_error_handlers(app: Flask) -> None:
             },
         )
         return jsonify({"success": False, "error": exc.to_dict()}), exc.status_code
+
+    @app.errorhandler(AuthError)
+    def handle_auth_error(exc: AuthError) -> tuple:
+        """Turn an AuthError raised by an ownership check into a JSON error."""
+        return error(str(exc), code=exc.code, status=exc.status)
 
     @app.errorhandler(400)
     def bad_request(e: Any) -> tuple:
