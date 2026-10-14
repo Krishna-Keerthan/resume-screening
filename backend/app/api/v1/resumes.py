@@ -23,6 +23,7 @@ import json
 
 from flask import Blueprint, current_app, g, request, send_file
 
+from app.core.exceptions import ResumeParserBusy
 from app.core.responses import error, no_content, success, success_list
 from app.core.security import require_auth
 from app.schemas.resume import AnalyzeResumeSchema, ResumeQuerySchema
@@ -264,6 +265,8 @@ def analyze_resume(resume_id: str):
             filename = getattr(resume, "filename", "resume.pdf")
             try:
                 parse_result = svcs.resume_parser.parse_bytes(file_bytes, filename)
+            except ResumeParserBusy:
+                raise
             except Exception:
                 logger.error("parse_bytes failed during force_refresh", exc_info=True)
                 return error(
@@ -332,6 +335,8 @@ def analyze_resume(resume_id: str):
                 else "Resume analysis complete (rule-based — Groq unavailable)."
             ),
         )
+    except ResumeParserBusy:
+        raise
     except Exception:
         logger.error("analyze_resume failed", exc_info=True)
         return error("Failed to analyse resume.", code="INTERNAL_ERROR", status=500)

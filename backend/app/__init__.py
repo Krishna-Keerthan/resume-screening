@@ -200,7 +200,8 @@ def _register_error_handlers(app: Flask) -> None:
                 "error_message": exc.message,
             },
         )
-        return jsonify({"success": False, "error": exc.to_dict()}), exc.status_code
+        headers = {"Retry-After": str(exc.retry_after)} if hasattr(exc, "retry_after") else {}
+        return jsonify({"success": False, "error": exc.to_dict()}), exc.status_code, headers
 
     @app.errorhandler(AuthError)
     def handle_auth_error(exc: AuthError) -> tuple:

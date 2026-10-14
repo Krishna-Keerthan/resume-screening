@@ -95,6 +95,7 @@ class BaseConfig:
     MAX_UPLOAD_MB:      int = _int_env("MAX_UPLOAD_MB", 10)
     PARSE_TIMEOUT_SECONDS: int = _int_env("PARSE_TIMEOUT_SECONDS", 30)
     MAX_PARSED_TEXT_CHARS: int = _int_env("MAX_PARSED_TEXT_CHARS", 200_000)
+    PARSE_CONCURRENCY: int = _int_env("PARSE_CONCURRENCY", 2)
     DOWNLOAD_URL_TTL_SECONDS: int = _int_env("DOWNLOAD_URL_TTL_SECONDS", 300)
     ALLOWED_EXTENSIONS: set = set(_list_env("ALLOWED_EXTENSIONS", "pdf,docx"))
 

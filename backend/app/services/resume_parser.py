@@ -63,6 +63,8 @@ import threading
 from dataclasses import dataclass, field
 from typing import Optional
 
+from app.core.exceptions import ResumeParserBusy
+
 logger = logging.getLogger(__name__)
 
 # Import expanded taxonomy (falls back gracefully if file not yet deployed)
@@ -295,11 +297,20 @@ class ResumeParserService:
     Args:
         parse_timeout_seconds: parse_bytes gives up after this long.
         max_text_chars:        extracted text is truncated to this length.
+        max_concurrent_parses: parses allowed to run at once in this process;
+                               further parse_bytes calls raise ResumeParserBusy.
     """
 
-    def __init__(self, parse_timeout_seconds: float = 30, max_text_chars: int = 200_000):
+    def __init__(
+        self,
+        parse_timeout_seconds: float = 30,
+        max_text_chars: int = 200_000,
+        max_concurrent_parses: int = 2,
+    ):
         self._timeout = parse_timeout_seconds
         self._max_text_chars = max_text_chars
+        self._max_concurrent_parses = max_concurrent_parses
+        self._parse_slots = threading.BoundedSemaphore(max_concurrent_parses)
 
     def parse(self, file_path: str) -> ParseResult:
         """
@@ -342,7 +353,15 @@ class ResumeParserService:
         configured timeout and returns a failed ParseResult; the abandoned
         worker thread finishes (and removes its temp file) on its own, since
         a thread running native extraction code cannot be interrupted.
+
+        A parse slot is held until the worker thread finishes, so abandoned
+        workers still count against max_concurrent_parses.
+
+        Raises:
+            ResumeParserBusy: Every slot is in use.
         """
+        if not self._parse_slots.acquire(blocking=False):
+            raise ResumeParserBusy()
         ext = os.path.splitext(filename)[1].lower()
         outcome: dict = {}
 
@@ -361,9 +380,14 @@ class ResumeParserService:
                         os.unlink(tmp_path)
                     except Exception:
                         pass
+                self._parse_slots.release()
 
         worker = threading.Thread(target=work, name="resume-parse", daemon=True)
-        worker.start()
+        try:
+            worker.start()
+        except BaseException:
+            self._parse_slots.release()
+            raise
         worker.join(self._timeout)
         if worker.is_alive():
             logger.warning("Resume parse timed out after %ss", self._timeout)

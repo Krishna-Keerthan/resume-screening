@@ -216,6 +216,22 @@ class TestUploadResume:
         assert r.get_json()["error"]["error_code"] == "PAYLOAD_TOO_LARGE"
         self.upload.assert_not_called()
 
+    def test_a_busy_parser_is_503_with_retry_after_and_leaves_nothing_behind(
+        self, client, db, candidate_a, headers_for, mock_services
+    ):
+        from app.core.exceptions import ResumeParserBusy
+        from app.models.resume import Resume
+
+        mock_services.resume_parser.parse_bytes.side_effect = ResumeParserBusy()
+        with patch("app.services.storage_service.LocalStorageBackend.delete") as delete:
+            r = self._post(client, candidate_a, headers_for(candidate_a), _pdf())
+
+        assert r.status_code == 503
+        assert r.headers["Retry-After"] == str(ResumeParserBusy.retry_after)
+        assert r.get_json()["error"]["error_code"] == "PARSER_BUSY"
+        delete.assert_called_once_with("stub-key")
+        assert db.session.query(Resume).filter_by(candidate_id=candidate_a.id).count() == 0
+
     def test_no_token_401(self, client, db, candidate_a, anon):
         assert self._post(client, candidate_a, anon, _pdf()).status_code == 401
         self.upload.assert_not_called()

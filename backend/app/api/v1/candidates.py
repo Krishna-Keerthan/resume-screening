@@ -29,7 +29,7 @@ from app.core.security import (
 )
 from app.schemas.candidate import UpdateCandidateSchema
 from app.core.database import db
-from app.core.exceptions import ResumeUploadFailed
+from app.core.exceptions import ResumeParserBusy, ResumeUploadFailed
 from app.repositories.refresh_token import RefreshTokenRepository
 from app.utils.file_helpers import validate_content, validate_upload
 
@@ -349,6 +349,15 @@ def upload_resume(candidate_id: str):
             resume.parse_error_msg = parse_result.parse_error
 
         repo.save(resume)
+
+    except ResumeParserBusy:
+        repo.delete(resume)
+        db.session.commit()
+        try:
+            storage.delete(storage_result.key)
+        except Exception:
+            logger.error("Failed to remove stored file after busy parser", exc_info=True)
+        raise
 
     except Exception:
         logger.error("Resume parse error (non-fatal)", exc_info=True)

@@ -126,6 +126,24 @@ class TestAnalyzeResume:
         client.post(f"{BASE}/{resume_a.id}/analyze", json={}, headers=headers_for(candidate_b))
         mock_services.resume_analysis.analyse.assert_not_called()
 
+    def test_a_busy_parser_on_reparse_is_503_with_retry_after(
+        self, client, db, resume_a, candidate_a, headers_for, mock_services
+    ):
+        from unittest.mock import patch
+
+        from app.core.exceptions import ResumeParserBusy
+
+        resume_a.storage_key = "stored-key"
+        db.session.commit()
+        mock_services.resume_parser.parse_bytes.side_effect = ResumeParserBusy()
+        with patch("app.services.storage_service.LocalStorageBackend.download_bytes", return_value=b"%PDF-1.4"):
+            r = client.post(f"{BASE}/{resume_a.id}/analyze", json={"force_refresh": True},
+                            headers=headers_for(candidate_a))
+
+        assert r.status_code == 503
+        assert r.headers["Retry-After"] == str(ResumeParserBusy.retry_after)
+        assert r.get_json()["error"]["error_code"] == "PARSER_BUSY"
+
     def test_nonexistent_resume_404(self, client, db, candidate_a, headers_for, mock_services):
         r = client.post(f"{BASE}/no-such/analyze", json={}, headers=headers_for(candidate_a))
         assert r.status_code == 404

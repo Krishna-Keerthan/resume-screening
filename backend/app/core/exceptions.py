@@ -200,6 +200,14 @@ class ResumeUploadFailed(ResumeError):
     status_code = 400
 
 
+class ResumeParserBusy(ResumeError):
+    """Every parse slot of this worker is in use. 503 with Retry-After."""
+    message = "The resume parser is busy. Try again shortly."
+    error_code = "PARSER_BUSY"
+    status_code = 503
+    retry_after = 5
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Job domain
 # ─────────────────────────────────────────────────────────────────────────────
