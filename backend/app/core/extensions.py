@@ -12,10 +12,15 @@ Pattern:
     Call ext.init_app(app) inside create_app().
 
 Currently registered:
-    cors — Flask-CORS for cross-origin requests.
+    cors    — Flask-CORS for cross-origin requests.
+    limiter — Flask-Limiter; see app/core/rate_limit.py.
 """
 
 from flask_cors import CORS
 
+from app.core.rate_limit import new_limiter
+
 # CORS instance — configured in create_app() with allowed origins
 cors = CORS()
+
+limiter = new_limiter()

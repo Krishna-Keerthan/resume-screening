@@ -124,6 +124,10 @@ def _init_extensions(app: Flask) -> None:
             "Set it to the exact frontend origin, e.g. https://yourapp.com"
         )
 
+    from app.core.extensions import limiter
+    from app.core.rate_limit import init_rate_limiting
+    init_rate_limiting(app, limiter)
+
     cors.init_app(
         app,
         resources={r"/api/*": {"origins": origins}},
@@ -265,7 +269,14 @@ def _register_error_handlers(app: Flask) -> None:
 
     @app.errorhandler(429)
     def rate_limit(e: Any) -> tuple:
-        return jsonify({"success": False, "error": {"error_code": "RATE_LIMIT_EXCEEDED", "message": "Too many requests."}}), 429
+        from app.core.extensions import limiter
+        from app.core.rate_limit import retry_after_seconds
+
+        headers = {}
+        retry_after = retry_after_seconds(limiter)
+        if retry_after is not None:
+            headers["Retry-After"] = str(retry_after)
+        return jsonify({"success": False, "error": {"error_code": "RATE_LIMIT_EXCEEDED", "message": "Too many requests."}}), 429, headers
 
     @app.errorhandler(500)
     def internal_error(e: Any) -> tuple:
@@ -283,6 +294,11 @@ def _register_blueprints(app: Flask) -> None:
     """Mount all API blueprints."""
     from app.api.v1 import api_v1_bp
     app.register_blueprint(api_v1_bp, url_prefix="/api/v1")
+
+    from app.api.v1.health import health_bp
+    from app.core.extensions import limiter
+    limiter.exempt(health_bp)
+
     logger.debug("Blueprints registered.", extra={"prefix": "/api/v1"})
 
 

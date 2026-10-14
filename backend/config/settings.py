@@ -138,10 +138,8 @@ class BaseConfig:
     GROQ_TIMEOUT_SECONDS: int   = _int_env("GROQ_TIMEOUT_SECONDS", 30)
 
     # ── Rate limiting ─────────────────────────────────────────────────────────
-    # Stub values — wire into flask-limiter in create_app() when ready.
+    # Per caller: the user id from the access token, else the client IP.
     RATE_LIMIT_DEFAULT:       str = os.getenv("RATE_LIMIT_DEFAULT",       "200 per minute")
-    RATE_LIMIT_AUTH:          str = os.getenv("RATE_LIMIT_AUTH",          "20 per minute")
-    RATE_LIMIT_SCORING:       str = os.getenv("RATE_LIMIT_SCORING",       "30 per minute")
     RATE_LIMIT_STORAGE_URL:   str = os.getenv("RATE_LIMIT_STORAGE_URL",   "memory://")
 
     # ── Pagination ────────────────────────────────────────────────────────────
@@ -195,6 +193,8 @@ class TestingConfig(BaseConfig):
     WTF_CSRF_ENABLED:        bool = False
     LOG_LEVEL:               str  = "ERROR"
     SECRET_KEY:              str  = "test-secret-key-not-for-production"
+    # Limiter runs for real, but nothing trips it unless a test lowers a limit.
+    RATE_LIMIT_DEFAULT:      str  = "1000000 per minute"
 
     @property
     def SQLALCHEMY_ENGINE_OPTIONS(self) -> dict:
