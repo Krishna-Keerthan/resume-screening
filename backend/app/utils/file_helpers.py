@@ -53,6 +53,7 @@ def safe_download_name(filename: str | None, ext: str) -> str:
 
 DOCX_MAX_ENTRIES = 100
 DOCX_MAX_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
+_DOCX_READ_CHUNK = 64 * 1024
 
 # First bytes of archive formats that must not be nested inside a DOCX.
 _ARCHIVE_SIGNATURES = (b"PK\x03\x04", b"PK\x05\x06", b"\x1f\x8b", b"7z\xbc\xaf\x27\x1c", b"Rar!\x1a\x07")
@@ -65,8 +66,9 @@ def validate_content(data: bytes, ext: str) -> None:
 
     PDF:  must start with "%PDF-".
     DOCX: must be a zip with [Content_Types].xml and word/document.xml, at most
-          DOCX_MAX_ENTRIES entries and DOCX_MAX_UNCOMPRESSED_BYTES uncompressed
-          in total, and no nested archive (by entry name or leading bytes).
+          DOCX_MAX_ENTRIES entries and DOCX_MAX_UNCOMPRESSED_BYTES actually
+          decompressed in total (counted while streaming, not from headers),
+          and no nested archive (by entry name or leading bytes).
 
     Raises:
         ResumeUploadFailed: On any mismatch or limit violation.
@@ -89,13 +91,10 @@ def validate_content(data: bytes, ext: str) -> None:
             raise ResumeUploadFailed(
                 f"DOCX has too many entries (limit {DOCX_MAX_ENTRIES})."
             )
-        if sum(i.file_size for i in infos) > DOCX_MAX_UNCOMPRESSED_BYTES:
-            raise ResumeUploadFailed(
-                f"DOCX is too large when uncompressed (limit {DOCX_MAX_UNCOMPRESSED_BYTES // (1024 * 1024)} MB)."
-            )
         names = {i.filename for i in infos}
         if "[Content_Types].xml" not in names or "word/document.xml" not in names:
             raise ResumeUploadFailed("File content is not a DOCX document (no word/document.xml).")
+        total = 0
         for info in infos:
             if info.is_dir():
                 continue
@@ -103,11 +102,18 @@ def validate_content(data: bytes, ext: str) -> None:
                 raise ResumeUploadFailed("DOCX must not contain a nested archive.")
             try:
                 with zf.open(info) as member:
-                    head = member.read(8)
+                    first = True
+                    while chunk := member.read(_DOCX_READ_CHUNK):
+                        if first and chunk.startswith(_ARCHIVE_SIGNATURES):
+                            raise ResumeUploadFailed("DOCX must not contain a nested archive.")
+                        first = False
+                        total += len(chunk)
+                        if total > DOCX_MAX_UNCOMPRESSED_BYTES:
+                            raise ResumeUploadFailed(
+                                f"DOCX is too large when uncompressed (limit {DOCX_MAX_UNCOMPRESSED_BYTES // (1024 * 1024)} MB)."
+                            )
             except (zipfile.BadZipFile, NotImplementedError, RuntimeError) as exc:
                 raise ResumeUploadFailed("DOCX contains an unreadable entry.") from exc
-            if head.startswith(_ARCHIVE_SIGNATURES):
-                raise ResumeUploadFailed("DOCX must not contain a nested archive.")
 
 
 def validate_upload(

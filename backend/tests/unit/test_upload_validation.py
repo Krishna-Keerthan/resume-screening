@@ -100,6 +100,15 @@ def test_more_than_50_mb_uncompressed_is_rejected():
         validate_content(bomb, "docx")
 
 
+def test_the_limit_applies_to_bytes_actually_decompressed_not_to_declared_sizes():
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in {**MINIMAL_DOCX_PARTS, "word/media/small.bin": b"\0" * 100}.items():
+            zf.writestr(name, data)
+        zf.getinfo("word/media/small.bin").file_size = DOCX_MAX_UNCOMPRESSED_BYTES * 2
+    validate_content(buf.getvalue(), "docx")
+
+
 def test_exactly_50_mb_uncompressed_is_accepted():
     parts_size = sum(len(v) for v in MINIMAL_DOCX_PARTS.values())
     ok = docx(**{"word/media/zeros.bin": b"\0" * (DOCX_MAX_UNCOMPRESSED_BYTES - parts_size)})
