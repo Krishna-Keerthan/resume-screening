@@ -172,6 +172,12 @@ class ProductionConfig(BaseConfig):
                 "SECRET_KEY must be set to a cryptographically random value in production. "
                 "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
             )
+        # Per-process counters would give every gunicorn worker its own budget.
+        if self.RATE_LIMIT_STORAGE_URL.startswith("memory:"):
+            raise EnvironmentError(
+                "RATE_LIMIT_STORAGE_URL must point at a shared store (e.g. redis://...) "
+                "in production; memory:// keeps a separate counter in every worker."
+            )
 
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> str:  # type: ignore[override]

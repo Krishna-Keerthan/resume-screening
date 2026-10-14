@@ -19,6 +19,7 @@ def test_get_config_development():
 def test_get_config_production(monkeypatch):
     monkeypatch.setenv("SECRET_KEY", "x" * 64)
     monkeypatch.setenv("DATABASE_URL", "postgres://user:pw@db:5432/ats")
+    monkeypatch.setattr(ProductionConfig, "RATE_LIMIT_STORAGE_URL", "redis://cache:6379/0")
     cfg = get_config("production")
     assert isinstance(cfg, ProductionConfig)
     assert cfg.DEBUG is False
@@ -108,3 +109,18 @@ def test_storage_settings_reach_flask_config():
         "CLOUDINARY_API_KEY":    "key-123",
         "CLOUDINARY_API_SECRET": "secret-456",
     }
+
+
+@pytest.mark.parametrize("url", ["memory://", "memory:", "memory://anything"])
+def test_production_config_refuses_per_process_rate_limit_storage(monkeypatch, url):
+    monkeypatch.setenv("SECRET_KEY", "x" * 64)
+    monkeypatch.setattr(ProductionConfig, "RATE_LIMIT_STORAGE_URL", url)
+    with pytest.raises(EnvironmentError, match="RATE_LIMIT_STORAGE_URL"):
+        get_config("production")
+
+
+def test_production_config_accepts_a_shared_rate_limit_store(monkeypatch):
+    monkeypatch.setenv("SECRET_KEY", "x" * 64)
+    monkeypatch.setattr(ProductionConfig, "RATE_LIMIT_STORAGE_URL", "redis://cache:6379/0")
+    assert get_config("production").RATE_LIMIT_STORAGE_URL == "redis://cache:6379/0"
+
