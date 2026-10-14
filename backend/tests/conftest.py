@@ -560,9 +560,14 @@ def resume_file():
 @pytest.fixture(autouse=True)
 def _fresh_rate_limit_counters():
     from app.core.extensions import limiter
-    limiter.reset()
+
+    def reset():
+        if limiter.initialized:      # false until some test has built the app
+            limiter.reset()
+
+    reset()
     yield
-    limiter.reset()
+    reset()
 
 
 @pytest.fixture()

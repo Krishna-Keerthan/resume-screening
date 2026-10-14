@@ -6,6 +6,7 @@ The test app runs the limiter for real with very high limits; a test lowers a
 limit by setting the config value (limits are read on every request).
 """
 import logging
+import os
 
 import pytest
 from flask import Flask
@@ -279,3 +280,36 @@ def test_downloads_by_different_users_do_not_share_a_budget(
 def test_an_anonymous_download_is_401_not_429(client, limit, downloadable):
     limit("RATE_LIMIT_DOWNLOAD", "1 per minute")
     assert [client.get(downloadable).status_code for _ in range(3)] == [401, 401, 401]
+
+
+# ─── shared store (needs a real Redis: set REDIS_TEST_URL) ────────────────────
+
+@pytest.mark.skipif(not os.getenv("REDIS_TEST_URL"), reason="REDIS_TEST_URL is not set")
+def test_two_limiters_on_one_redis_share_their_counters():
+    """What separate gunicorn workers rely on: a request seen by one is counted by the other."""
+    import uuid
+
+    from app.core.rate_limit import init_rate_limiting, new_limiter
+
+    prefix = f"test-{uuid.uuid4()}"          # keeps this run's keys apart from anything else in the Redis
+
+    def worker():
+        app = Flask(__name__)
+        app.config.update(
+            RATE_LIMIT_STORAGE_URL=os.environ["REDIS_TEST_URL"],
+            RATE_LIMIT_DEFAULT="3 per minute",
+            RATELIMIT_KEY_PREFIX=prefix,
+        )
+        init_rate_limiting(app, new_limiter())
+
+        @app.get("/x")
+        def x():
+            return "ok"
+
+        return app.test_client()
+
+    one, two = worker(), worker()
+    assert one.get("/x").status_code == 200
+    assert two.get("/x").status_code == 200
+    assert one.get("/x").status_code == 200
+    assert two.get("/x").status_code == 429       # the fourth request overall, seen by the other worker
