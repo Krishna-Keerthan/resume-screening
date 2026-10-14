@@ -117,7 +117,7 @@ def test_exactly_50_mb_uncompressed_is_accepted():
 
 @pytest.mark.parametrize("name", ["word/embeddings/inner.docx", "word/embeddings/a.zip", "x/b.jar", "c.7z", "d.tar.gz", "e.rar"])
 def test_an_entry_with_an_archive_name_is_rejected(name):
-    with pytest.raises(ResumeUploadFailed, match="archive"):
+    with pytest.raises(ResumeUploadFailed, match="Embedded files are not supported"):
         validate_content(docx(**{name: b"anything"}), "docx")
 
 
@@ -125,12 +125,12 @@ def test_an_entry_with_an_archive_name_is_rejected(name):
     b"PK\x03\x04rest", b"\x1f\x8b\x08rest", b"7z\xbc\xaf\x27\x1crest", b"Rar!\x1a\x07\x00rest",
 ])
 def test_an_entry_that_starts_with_an_archive_signature_is_rejected_whatever_its_name(magic):
-    with pytest.raises(ResumeUploadFailed, match="archive"):
+    with pytest.raises(ResumeUploadFailed, match="Embedded files are not supported"):
         validate_content(docx(**{"word/media/image1.png": magic}), "docx")
 
 
 def test_a_nested_docx_inside_the_docx_is_rejected():
-    with pytest.raises(ResumeUploadFailed, match="archive"):
+    with pytest.raises(ResumeUploadFailed, match="Embedded files are not supported"):
         validate_content(docx(**{"word/media/image1.png": docx()}), "docx")
 
 

@@ -99,13 +99,13 @@ def validate_content(data: bytes, ext: str) -> None:
             if info.is_dir():
                 continue
             if info.filename.lower().endswith(_ARCHIVE_SUFFIXES):
-                raise ResumeUploadFailed("DOCX must not contain a nested archive.")
+                raise ResumeUploadFailed("Embedded files are not supported in DOCX uploads.")
             try:
                 with zf.open(info) as member:
                     first = True
                     while chunk := member.read(_DOCX_READ_CHUNK):
                         if first and chunk.startswith(_ARCHIVE_SIGNATURES):
-                            raise ResumeUploadFailed("DOCX must not contain a nested archive.")
+                            raise ResumeUploadFailed("Embedded files are not supported in DOCX uploads.")
                         first = False
                         total += len(chunk)
                         if total > DOCX_MAX_UNCOMPRESSED_BYTES:
