@@ -19,6 +19,11 @@ services:
         fromDatabase:
           name: ats-postgres
           property: connectionString
+      - key: RATE_LIMIT_STORAGE_URL
+        fromService:
+          type: keyvalue
+          name: ats-ratelimit
+          property: connectionString   # production refuses memory://
       - key: ALLOWED_ORIGINS
         sync: false   # Set in Render dashboard — your Vercel URL
       - key: GROQ_API_KEY
@@ -30,6 +35,12 @@ services:
       - key: WORKERS
         value: "2"
     healthCheckPath: /api/v1/health
+
+  # Shared rate-limit counters for every gunicorn worker. Internal traffic only.
+  - type: keyvalue
+    name: ats-ratelimit
+    plan: free
+    ipAllowList: []
 
 databases:
   - name: ats-postgres
