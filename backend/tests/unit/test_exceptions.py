@@ -51,3 +51,14 @@ class TestDomainExceptions:
         assert exc.status_code == 404
         assert exc.error_code == "CANDIDATE_NOT_FOUND"
         assert exc.details == {"candidate_id": "abc"}
+
+
+class TestAppErrorHandler:
+    def test_an_app_error_becomes_its_own_json_response_not_a_500(self, app):
+        from app.core.exceptions import ResumeNotFound
+
+        with app.test_request_context("/"):
+            response = app.make_response(app.handle_user_exception(ResumeNotFound("r-1")))
+
+        assert response.status_code == 404
+        assert response.get_json()["error"]["error_code"] == "RESUME_NOT_FOUND"
