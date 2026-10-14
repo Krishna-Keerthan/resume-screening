@@ -245,3 +245,37 @@ def test_a_correct_login_still_works_below_the_limits(client, db, candidate_a, a
     limit("RATE_LIMIT_LOGIN_IP", "5 per minute")
     r = client.post(LOGIN, json={"email": candidate_a.email, "password": account_password, "role": "candidate"})
     assert r.status_code == 200
+
+
+# ─── downloads ────────────────────────────────────────────────────────────────
+
+@pytest.fixture()
+def downloadable(app, db, tmp_path, monkeypatch, resume_a):
+    from app.services.storage_service import LocalStorageBackend
+
+    monkeypatch.setitem(app.config, "STORAGE_PROVIDER", "local")
+    monkeypatch.setitem(app.config, "UPLOAD_FOLDER", str(tmp_path / "uploads"))
+    resume_a.storage_key = LocalStorageBackend(str(tmp_path / "uploads")).upload(b"%PDF-1.4 x", "pdf").key
+    db.session.commit()
+    return f"/api/v1/resumes/{resume_a.id}/download"
+
+
+def test_downloads_are_limited_per_user(client, limit, downloadable, candidate_a, headers_for):
+    limit("RATE_LIMIT_DOWNLOAD", "2 per minute")
+    codes = [client.get(downloadable, headers=headers_for(candidate_a)).status_code for _ in range(3)]
+    assert codes == [200, 200, 429]
+
+
+def test_downloads_by_different_users_do_not_share_a_budget(
+    client, db, limit, downloadable, application_a, candidate_a, recruiter_a, headers_for
+):
+    limit("RATE_LIMIT_DOWNLOAD", "1 per minute")
+    assert client.get(downloadable, headers=headers_for(candidate_a)).status_code == 200
+    assert client.get(downloadable, headers=headers_for(candidate_a)).status_code == 429
+    # recruiter A has an application with this résumé, so is allowed in, with a budget of their own
+    assert client.get(downloadable, headers=headers_for(recruiter_a)).status_code == 200
+
+
+def test_an_anonymous_download_is_401_not_429(client, limit, downloadable):
+    limit("RATE_LIMIT_DOWNLOAD", "1 per minute")
+    assert [client.get(downloadable).status_code for _ in range(3)] == [401, 401, 401]

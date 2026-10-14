@@ -31,3 +31,8 @@ limiter = new_limiter()
 llm_limit = limiter.shared_limit(
     config_limit("RATE_LIMIT_LLM"), scope="llm", key_func=user_or_ip_key, override_defaults=False,
 )
+
+# Per-user cap on résumé downloads (each one can mint a signed storage URL).
+download_limit = limiter.limit(
+    config_limit("RATE_LIMIT_DOWNLOAD"), key_func=user_or_ip_key, override_defaults=False,
+)

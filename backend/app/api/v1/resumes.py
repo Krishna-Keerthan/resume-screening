@@ -24,7 +24,7 @@ import json
 from flask import Blueprint, current_app, g, request, send_file
 
 from app.core.exceptions import ResumeParserBusy
-from app.core.extensions import llm_limit
+from app.core.extensions import download_limit, llm_limit
 from app.core.responses import error, no_content, success, success_list
 from app.core.security import require_auth
 from app.schemas.resume import AnalyzeResumeSchema, ResumeQuerySchema
@@ -109,6 +109,7 @@ def get_resume(resume_id: str):
 
 @resumes_bp.get("/<resume_id>/download")
 @require_auth("candidate", "recruiter")
+@download_limit
 def download_resume(resume_id: str):
     """
     GET /api/v1/resumes/<resume_id>/download
