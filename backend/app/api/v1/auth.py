@@ -13,6 +13,8 @@ from datetime import datetime, timezone, timedelta
 from flask import Blueprint, g, make_response, request
 
 from app.core.database import db
+from app.core.extensions import limiter
+from app.core.rate_limit import config_limit, email_key, ip_email_key, ip_key
 from app.core.responses import created, error, success
 from app.core.security import (
     account_is_usable,
@@ -162,6 +164,7 @@ def _auth_response(user_dict: dict, role: str, status: int = 200):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @auth_bp.post("/register/candidate")
+@limiter.shared_limit(config_limit("RATE_LIMIT_REGISTER"), scope="register", key_func=ip_key, override_defaults=False)
 def register_candidate():
     """
     POST /api/v1/auth/register/candidate
@@ -230,6 +233,7 @@ def register_candidate():
 # ─────────────────────────────────────────────────────────────────────────────
 
 @auth_bp.post("/register/recruiter")
+@limiter.shared_limit(config_limit("RATE_LIMIT_REGISTER"), scope="register", key_func=ip_key, override_defaults=False)
 def register_recruiter():
     """
     POST /api/v1/auth/register/recruiter
@@ -291,6 +295,9 @@ def register_recruiter():
 # ─────────────────────────────────────────────────────────────────────────────
 
 @auth_bp.post("/login")
+@limiter.limit(config_limit("RATE_LIMIT_LOGIN_IP"), key_func=ip_key, scope="login-ip", override_defaults=False)
+@limiter.limit(config_limit("RATE_LIMIT_LOGIN_IP_EMAIL"), key_func=ip_email_key, scope="login-ip-email", override_defaults=False)
+@limiter.limit(config_limit("RATE_LIMIT_LOGIN_EMAIL"), key_func=email_key, scope="login-email", override_defaults=False)
 def login():
     """
     POST /api/v1/auth/login
@@ -348,6 +355,7 @@ def login():
 # ─────────────────────────────────────────────────────────────────────────────
 
 @auth_bp.post("/refresh")
+@limiter.limit(config_limit("RATE_LIMIT_REFRESH"), key_func=ip_key, scope="refresh", override_defaults=False)
 def refresh():
     raw_refresh = request.cookies.get(_COOKIE_NAME)
     if not raw_refresh:

@@ -165,3 +165,98 @@ def test_without_a_forwarded_header_the_socket_address_is_used(client, limit):
     assert _get(client, PING, ip="10.1.1.1").status_code == 429
     assert _get(client, PING, ip="10.1.1.2").status_code == 200
 
+
+
+# ─── auth routes ──────────────────────────────────────────────────────────────
+
+LOGIN = "/api/v1/auth/login"
+OFF = "1000000 per minute"
+
+
+def _login(client, email="who@example.com", ip="10.2.0.1", body=None, **kw):
+    payload = {"email": email, "password": "Wrong-pass-1", "role": "candidate"} if body is None else body
+    return client.post(LOGIN, json=payload, environ_overrides={"REMOTE_ADDR": ip}, **kw)
+
+
+@pytest.fixture()
+def only_login_limit(limit):
+    """Lower one login limit and leave the other two out of the way."""
+    def _set(which, value):
+        for name in ("RATE_LIMIT_LOGIN_IP", "RATE_LIMIT_LOGIN_IP_EMAIL", "RATE_LIMIT_LOGIN_EMAIL"):
+            limit(name, OFF)
+        limit(which, value)
+    return _set
+
+
+def test_login_is_limited_per_ip_whatever_the_email(client, only_login_limit):
+    only_login_limit("RATE_LIMIT_LOGIN_IP", "3 per minute")
+    codes = [_login(client, email=f"user{n}@example.com").status_code for n in range(4)]
+    assert codes == [401, 401, 401, 429]
+    assert _login(client, email="user0@example.com", ip="10.2.0.2").status_code == 401
+
+
+def test_login_is_limited_per_ip_and_email(client, only_login_limit):
+    only_login_limit("RATE_LIMIT_LOGIN_IP_EMAIL", "2 per minute")
+    assert [_login(client).status_code for _ in range(3)] == [401, 401, 429]
+    assert _login(client, email="other@example.com").status_code == 401     # same IP, other email
+    assert _login(client, ip="10.2.0.2").status_code == 401                 # same email, other IP
+
+
+def test_the_email_in_the_limit_key_ignores_case_and_surrounding_space(client, only_login_limit):
+    only_login_limit("RATE_LIMIT_LOGIN_IP_EMAIL", "2 per minute")
+    assert _login(client, email="Who@Example.com").status_code == 401
+    assert _login(client, email="  who@example.com ").status_code == 401
+    assert _login(client, email="WHO@EXAMPLE.COM").status_code == 429
+
+
+def test_one_email_is_limited_across_many_ips(client, only_login_limit):
+    only_login_limit("RATE_LIMIT_LOGIN_EMAIL", "2 per hour")
+    assert [_login(client, ip=f"10.3.0.{n}").status_code for n in range(3)] == [401, 401, 429]
+    assert _login(client, email="other@example.com", ip="10.3.0.9").status_code == 401
+
+
+@pytest.mark.parametrize("make", [
+    lambda c, **k: c.post(LOGIN, data="not json at all", content_type="text/plain", **k),
+    lambda c, **k: c.post(LOGIN, data="{broken", content_type="application/json", **k),
+    lambda c, **k: c.post(LOGIN, json=["a", "list"], **k),
+    lambda c, **k: c.post(LOGIN, json={"email": 12345, "password": "x", "role": "candidate"}, **k),
+    lambda c, **k: c.post(LOGIN, json={"password": "x", "role": "candidate"}, **k),
+    lambda c, **k: c.post(LOGIN, json={"email": "   "}, **k),
+    lambda c, **k: c.post(LOGIN, **k),
+])
+def test_an_unusable_login_body_never_breaks_the_key_and_counts_against_the_ip(
+    client, only_login_limit, make
+):
+    only_login_limit("RATE_LIMIT_LOGIN_IP_EMAIL", "2 per minute")
+    env = {"environ_overrides": {"REMOTE_ADDR": "10.4.0.1"}}
+    statuses = [make(client, **env).status_code for _ in range(3)]
+    assert 500 not in statuses
+    assert statuses[2] == 429
+    assert make(client, environ_overrides={"REMOTE_ADDR": "10.4.0.2"}).status_code != 429
+
+
+def test_registration_is_limited_per_ip_across_both_account_types(client, limit):
+    limit("RATE_LIMIT_REGISTER", "2 per hour")
+    ip = {"REMOTE_ADDR": "10.5.0.1"}
+    first = client.post("/api/v1/auth/register/candidate", json={}, environ_overrides=ip)
+    second = client.post("/api/v1/auth/register/recruiter", json={}, environ_overrides=ip)
+    third = client.post("/api/v1/auth/register/candidate", json={}, environ_overrides=ip)
+    assert (first.status_code, second.status_code) == (400, 400)
+    assert third.status_code == 429
+    other_ip = client.post("/api/v1/auth/register/candidate", json={}, environ_overrides={"REMOTE_ADDR": "10.5.0.2"})
+    assert other_ip.status_code == 400
+
+
+def test_refresh_is_limited_per_ip(client, limit):
+    limit("RATE_LIMIT_REFRESH", "2 per minute")
+    ip = {"REMOTE_ADDR": "10.6.0.1"}
+    codes = [client.post("/api/v1/auth/refresh", environ_overrides=ip).status_code for _ in range(3)]
+    assert codes[:2] == [401, 401]
+    assert codes[2] == 429
+    assert client.post("/api/v1/auth/refresh", environ_overrides={"REMOTE_ADDR": "10.6.0.2"}).status_code == 401
+
+
+def test_a_correct_login_still_works_below_the_limits(client, db, candidate_a, account_password, limit):
+    limit("RATE_LIMIT_LOGIN_IP", "5 per minute")
+    r = client.post(LOGIN, json={"email": candidate_a.email, "password": account_password, "role": "candidate"})
+    assert r.status_code == 200

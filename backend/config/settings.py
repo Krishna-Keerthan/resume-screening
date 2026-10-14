@@ -141,6 +141,12 @@ class BaseConfig:
     # Per caller: the user id from the access token, else the client IP.
     RATE_LIMIT_DEFAULT:       str = os.getenv("RATE_LIMIT_DEFAULT",       "200 per minute")
     RATE_LIMIT_STORAGE_URL:   str = os.getenv("RATE_LIMIT_STORAGE_URL",   "memory://")
+    # Login is limited three ways at once; a request must pass all three.
+    RATE_LIMIT_LOGIN_IP:       str = os.getenv("RATE_LIMIT_LOGIN_IP",       "10 per minute")
+    RATE_LIMIT_LOGIN_IP_EMAIL: str = os.getenv("RATE_LIMIT_LOGIN_IP_EMAIL", "5 per minute")
+    RATE_LIMIT_LOGIN_EMAIL:    str = os.getenv("RATE_LIMIT_LOGIN_EMAIL",    "30 per hour")
+    RATE_LIMIT_REGISTER:       str = os.getenv("RATE_LIMIT_REGISTER",       "10 per hour")
+    RATE_LIMIT_REFRESH:        str = os.getenv("RATE_LIMIT_REFRESH",        "30 per minute")
 
     # ── Pagination ────────────────────────────────────────────────────────────
     DEFAULT_PAGE_SIZE: int = _int_env("DEFAULT_PAGE_SIZE", 20)
@@ -200,7 +206,12 @@ class TestingConfig(BaseConfig):
     LOG_LEVEL:               str  = "ERROR"
     SECRET_KEY:              str  = "test-secret-key-not-for-production"
     # Limiter runs for real, but nothing trips it unless a test lowers a limit.
-    RATE_LIMIT_DEFAULT:      str  = "1000000 per minute"
+    RATE_LIMIT_DEFAULT:        str = "1000000 per minute"
+    RATE_LIMIT_LOGIN_IP:       str = "1000000 per minute"
+    RATE_LIMIT_LOGIN_IP_EMAIL: str = "1000000 per minute"
+    RATE_LIMIT_LOGIN_EMAIL:    str = "1000000 per minute"
+    RATE_LIMIT_REGISTER:       str = "1000000 per minute"
+    RATE_LIMIT_REFRESH:        str = "1000000 per minute"
 
     @property
     def SQLALCHEMY_ENGINE_OPTIONS(self) -> dict:
