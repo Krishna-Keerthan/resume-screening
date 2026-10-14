@@ -18,9 +18,16 @@ Currently registered:
 
 from flask_cors import CORS
 
-from app.core.rate_limit import new_limiter
+from app.core.rate_limit import config_limit, new_limiter, user_or_ip_key
 
 # CORS instance — configured in create_app() with allowed origins
 cors = CORS()
 
 limiter = new_limiter()
+
+# One per-user budget (RATE_LIMIT_LLM) shared by every route that can call Groq.
+# Put it BELOW @require_auth so anonymous callers get 401, not 429, and the
+# key is the authenticated user.
+llm_limit = limiter.shared_limit(
+    config_limit("RATE_LIMIT_LLM"), scope="llm", key_func=user_or_ip_key, override_defaults=False,
+)

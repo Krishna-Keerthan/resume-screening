@@ -24,6 +24,7 @@ import json
 from flask import Blueprint, current_app, g, request, send_file
 
 from app.core.exceptions import ResumeParserBusy
+from app.core.extensions import llm_limit
 from app.core.responses import error, no_content, success, success_list
 from app.core.security import require_auth
 from app.schemas.resume import AnalyzeResumeSchema, ResumeQuerySchema
@@ -201,6 +202,7 @@ def delete_resume(resume_id: str):
 
 @resumes_bp.post("/<resume_id>/analyze")
 @require_auth("candidate")
+@llm_limit
 def analyze_resume(resume_id: str):
     """
     POST /api/v1/resumes/<resume_id>/analyze
@@ -482,6 +484,7 @@ def set_active_resume(resume_id: str):
 
 @resumes_bp.post("/<resume_id>/generate-summary")
 @require_auth("candidate")
+@llm_limit
 def generate_summary(resume_id: str):
     """POST /api/v1/resumes/<resume_id>/generate-summary"""
     try:
@@ -525,6 +528,7 @@ def generate_summary(resume_id: str):
 
 @resumes_bp.post("/<resume_id>/rewrite-suggestions")
 @require_auth("candidate")
+@llm_limit
 def rewrite_suggestions(resume_id: str):
     """POST /api/v1/resumes/<resume_id>/rewrite-suggestions  Body: { job_id }"""
     body   = request.get_json(silent=True) or {}

@@ -22,6 +22,7 @@ from flask import Blueprint, request
 
 from flask import g
 
+from app.core.extensions import llm_limit
 from app.core.security import current_account, require_auth
 
 from app.core.responses import created, error, no_content, success, success_list
@@ -111,6 +112,7 @@ def list_jobs():
 
 @jobs_bp.post("")
 @require_auth("recruiter")
+@llm_limit
 def create_job():
     """
     POST /api/v1/jobs/
@@ -263,6 +265,7 @@ def delete_job(job_id: str):
 
 @jobs_bp.post("/<job_id>/enhance")
 @require_auth("recruiter")
+@llm_limit
 def enhance_job(job_id: str):
     """
     POST /api/v1/jobs/<job_id>/enhance

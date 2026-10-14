@@ -14,21 +14,6 @@ PING = "/api/v1/jobs"          # public GET, cheap
 ME = "/api/v1/auth/me"
 
 
-@pytest.fixture(autouse=True)
-def _fresh_counters():
-    from app.core.extensions import limiter
-    limiter.reset()
-    yield
-    limiter.reset()
-
-
-@pytest.fixture()
-def limit(app, monkeypatch):
-    def _set(name, value):
-        monkeypatch.setitem(app.config, name, value)
-    return _set
-
-
 def _get(client, url, headers=None, ip=None):
     return client.get(url, headers=headers or {}, environ_overrides={"REMOTE_ADDR": ip} if ip else {})
 

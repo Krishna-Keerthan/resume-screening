@@ -19,6 +19,7 @@ import uuid
 from flask import Blueprint, g, request
 
 from app.core.responses import created, error, no_content, success, success_list
+from app.core.extensions import llm_limit
 from app.core.security import require_auth
 from app.schemas.application import (
     ApplicationQuerySchema,
@@ -96,6 +97,7 @@ def list_applications():
 
 @applications_bp.post("/")
 @require_auth("candidate")
+@llm_limit
 def create_application():
     """
     POST /api/v1/applications/
@@ -386,6 +388,7 @@ def withdraw_application(application_id: str):
 
 @applications_bp.post("/<application_id>/score")
 @require_auth("recruiter")
+@llm_limit
 def score_application(application_id: str):
     """
     POST /api/v1/applications/<application_id>/score
@@ -456,6 +459,7 @@ def score_application(application_id: str):
 
 @applications_bp.get("/<application_id>/ai-summary")
 @require_auth("recruiter")
+@llm_limit
 def get_ai_summary(application_id: str):
     """GET /api/v1/applications/<application_id>/ai-summary"""
     try:

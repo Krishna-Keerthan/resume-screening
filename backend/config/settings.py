@@ -147,6 +147,8 @@ class BaseConfig:
     RATE_LIMIT_LOGIN_EMAIL:    str = os.getenv("RATE_LIMIT_LOGIN_EMAIL",    "30 per hour")
     RATE_LIMIT_REGISTER:       str = os.getenv("RATE_LIMIT_REGISTER",       "10 per hour")
     RATE_LIMIT_REFRESH:        str = os.getenv("RATE_LIMIT_REFRESH",        "30 per minute")
+    # One budget per user shared by every route that can call Groq.
+    RATE_LIMIT_LLM:            str = os.getenv("RATE_LIMIT_LLM",            "10 per minute;100 per day")
 
     # ── Pagination ────────────────────────────────────────────────────────────
     DEFAULT_PAGE_SIZE: int = _int_env("DEFAULT_PAGE_SIZE", 20)
@@ -212,6 +214,7 @@ class TestingConfig(BaseConfig):
     RATE_LIMIT_LOGIN_EMAIL:    str = "1000000 per minute"
     RATE_LIMIT_REGISTER:       str = "1000000 per minute"
     RATE_LIMIT_REFRESH:        str = "1000000 per minute"
+    RATE_LIMIT_LLM:            str = "1000000 per minute"
 
     @property
     def SQLALCHEMY_ENGINE_OPTIONS(self) -> dict:

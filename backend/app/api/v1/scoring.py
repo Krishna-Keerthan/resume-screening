@@ -19,6 +19,7 @@ import logging
 from flask import Blueprint
 
 from app.core.responses import error, success
+from app.core.extensions import llm_limit
 from app.core.security import require_auth
 from app.services.ats_scorer import scorer_inputs
 from app.schemas.scoring import JobRecommendationsSchema, MatchResumeToJobSchema
@@ -43,6 +44,7 @@ scoring_bp = Blueprint("scoring", __name__)
 
 @scoring_bp.post("/match")
 @require_auth("candidate", "recruiter")
+@llm_limit
 def match_resume_to_job():
     """
     POST /api/v1/scores/match

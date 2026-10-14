@@ -553,3 +553,21 @@ def ats_scorer(db):
 @pytest.fixture()
 def resume_file():
     return (io.BytesIO(b"%PDF-1.4 fake pdf content"), "test_resume.pdf")
+
+
+# ─── Rate limiting ────────────────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def _fresh_rate_limit_counters():
+    from app.core.extensions import limiter
+    limiter.reset()
+    yield
+    limiter.reset()
+
+
+@pytest.fixture()
+def limit(app, monkeypatch):
+    """limit("RATE_LIMIT_LLM", "2 per minute"): lower one limit for this test."""
+    def _set(name, value):
+        monkeypatch.setitem(app.config, name, value)
+    return _set
