@@ -15,7 +15,8 @@ Callers are told apart by:
   email_key       the lowercased email alone (login backstop)
 
 Key functions never raise: an unusable body or token falls back to the IP.
-The client IP is request.remote_addr.
+The client IP is request.remote_addr, which create_app() takes from the
+proxy's X-Forwarded-For (ProxyFix, one trusted hop).
 """
 from __future__ import annotations
 

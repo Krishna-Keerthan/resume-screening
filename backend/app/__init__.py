@@ -39,6 +39,7 @@ import os
 from typing import Any
 
 from flask import Flask, jsonify
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.core.logging import configure_logging
 from config import get_config
@@ -66,6 +67,12 @@ def create_app(env: str | None = None) -> Flask:
     app = Flask(__name__)
     app.url_map.strict_slashes = False
     app.config.from_object(config_class)
+
+    # Exactly one trusted proxy (Render's load balancer) sits in front of the
+    # app: request.remote_addr becomes the last X-Forwarded-For entry, the one
+    # that proxy appended, and anything the client put before it is ignored.
+    # Do not expose the app directly to the internet with this enabled.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
 
     # ── 2. Configure logging (must be first — everything after logs) ──────────
     configure_logging(

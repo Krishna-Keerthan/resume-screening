@@ -141,3 +141,27 @@ def test_a_memory_url_works_without_any_fallback_noise(caplog):
     with caplog.at_level(logging.WARNING, logger="flask-limiter"):
         assert [client.get("/x").status_code for _ in range(2)] == [200, 429]
     assert not caplog.records
+
+
+# ─── client IP behind the proxy ───────────────────────────────────────────────
+
+def _xff(client, value):
+    return client.get(PING, headers={"X-Forwarded-For": value})
+
+
+def test_the_client_ip_is_the_address_the_proxy_appended_not_what_the_client_claimed(client, limit):
+    limit("RATE_LIMIT_DEFAULT", "1 per minute")
+    assert _xff(client, "5.5.5.5, 9.9.9.9").status_code == 200
+    # a different forged prefix, same real client: still the same bucket
+    assert _xff(client, "6.6.6.6, 9.9.9.9").status_code == 429
+    assert _xff(client, "1.2.3.4, 5.5.5.5, 9.9.9.9").status_code == 429
+    # a different real client: its own bucket
+    assert _xff(client, "5.5.5.5, 8.8.8.8").status_code == 200
+
+
+def test_without_a_forwarded_header_the_socket_address_is_used(client, limit):
+    limit("RATE_LIMIT_DEFAULT", "1 per minute")
+    assert _get(client, PING, ip="10.1.1.1").status_code == 200
+    assert _get(client, PING, ip="10.1.1.1").status_code == 429
+    assert _get(client, PING, ip="10.1.1.2").status_code == 200
+
