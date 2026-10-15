@@ -1,6 +1,6 @@
 # Direct dependencies only. Regenerate requirements.txt with:
-#   pip-compile --output-file=requirements.txt requirements.in
-# (run on Linux / python:3.11-slim — the deploy platform)
+#   uv pip compile requirements.in -o requirements.txt --python-version 3.11 #       --python-platform linux --index-strategy unsafe-best-match
+# Test and seed tooling lives in requirements-dev.in.
 
 # CPU-only PyTorch wheels (avoids the multi-GB CUDA build)
 --extra-index-url https://download.pytorch.org/whl/cpu
@@ -40,7 +40,3 @@ groq==1.0.0
 
 # File storage (STORAGE_PROVIDER=cloudinary)
 cloudinary==1.46.3
-
-# Seed data and tests
-Faker==40.12.0
-pytest==9.0.2
