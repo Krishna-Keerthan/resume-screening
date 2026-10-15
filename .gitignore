@@ -242,4 +242,4 @@ alembic/versions/
 # Audit report: local only until Phase 1 is merged
 docs/audit.md
 
-instructions.md
+instruction.md

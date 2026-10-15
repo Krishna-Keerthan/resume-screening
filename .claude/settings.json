@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "blockReadsOutsideWorkingDirectories": false,
+    "deny": [
+        "Read(./.env)",
+        "Edit(./.env)"
+    ]
+  }
+}
