@@ -2,6 +2,8 @@
 Routes that can call Groq share one per-user budget (RATE_LIMIT_LLM), applied
 after authentication: an anonymous caller gets 401, never 429.
 """
+import time
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -36,22 +38,54 @@ def _call(world, route, user, headers=None):
                              headers=world.headers_for(user) if headers is None else headers)
 
 
+class _Trace:
+    """Every call's status, body, wall-clock time and elapsed time, for the failure message."""
+
+    def __init__(self, world, route):
+        self.world, self.route, self.rows = world, route, []
+        self.started = time.monotonic()
+
+    def call(self, user):
+        t0 = time.monotonic()
+        response = _call(self.world, self.route, user)
+        self.rows.append((
+            len(self.rows) + 1,
+            datetime.now(timezone.utc).strftime("%H:%M:%S.%f"),
+            round(time.monotonic() - t0, 4),
+            response.status_code,
+            " ".join(response.get_data(as_text=True).split())[:300],
+        ))
+        return response.status_code
+
+    def __str__(self):
+        from app.core.extensions import limiter
+
+        app = self.world.client.application
+        lines = [
+            f"route={self.route} RATE_LIMIT_LLM={app.config['RATE_LIMIT_LLM']!r} "
+            f"RATELIMIT_ENABLED={app.config.get('RATELIMIT_ENABLED')!r} limiter.enabled={limiter.enabled!r} "
+            f"strategy={getattr(limiter, '_strategy', None)!r} total_elapsed={time.monotonic() - self.started:.4f}s"
+        ]
+        lines += [f"  #{n} at {at}Z took {took}s -> {status} {body}" for n, at, took, status, body in self.rows]
+        return "\n".join(lines)
+
+
 @pytest.mark.parametrize("route", ROUTE_IDS)
 def test_the_llm_budget_is_enforced_per_user(world, limit, route):
     limit("RATE_LIMIT_LLM", "2 per minute")
     owner = world.users[LLM_ROUTES[route][1]][0]
-    codes = [_call(world, route, owner).status_code for _ in range(3)]
-    assert 429 not in codes[:2]
-    assert codes[2] == 429
+    trace = _Trace(world, route)
+    codes = [trace.call(owner) for _ in range(3)]
+    assert 429 not in codes[:2] and codes[2] == 429, str(trace)
 
 
 @pytest.mark.parametrize("route", ROUTE_IDS)
 def test_two_users_on_the_same_ip_have_separate_budgets(world, limit, route):
     limit("RATE_LIMIT_LLM", "1 per minute")
     first, second = world.users[LLM_ROUTES[route][1]]
-    _call(world, route, first)
-    assert _call(world, route, first).status_code == 429
-    assert _call(world, route, second).status_code != 429
+    trace = _Trace(world, route)
+    codes = [trace.call(first), trace.call(first), trace.call(second)]
+    assert codes[1] == 429 and codes[2] != 429, str(trace)
 
 
 @pytest.mark.parametrize("route", ROUTE_IDS)
