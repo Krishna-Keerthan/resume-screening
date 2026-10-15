@@ -448,9 +448,7 @@ def set_active_resume(resume_id: str):
             return err
         user_id = current_account().id
 
-        # Normalise parse_status comparison — handle both enum and string values
-        parse_status_val = getattr(resume.parse_status, "value", str(resume.parse_status))
-        if parse_status_val != ParseStatus.SUCCESS.value:
+        if ParseStatus(resume.parse_status) is not ParseStatus.SUCCESS:
             return error(
                 "Only successfully parsed resumes can be set as active.",
                 code="RESUME_NOT_PARSED",

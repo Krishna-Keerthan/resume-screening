@@ -212,6 +212,18 @@ class TestUpdateApplicationStage:
         r = client.patch(f"{BASE}/ghost/stage", json={"stage": "reviewed"}, headers=headers_for(recruiter_a))
         assert r.status_code == 404
 
+    def test_a_terminal_application_names_its_stage_by_value(
+        self, client, db, application_a, recruiter_a, headers_for
+    ):
+        application_a.stage = "rejected"
+        db.session.commit()
+
+        r = client.patch(f"{BASE}/{application_a.id}/stage", json={"stage": "reviewed"},
+                         headers=headers_for(recruiter_a))
+
+        assert r.status_code == 422
+        assert "terminal stage ('rejected')" in r.get_json()["error"]["message"]
+
 
 class TestWithdrawApplication:
     def test_access_rules(self, check_access, application_a, candidate_a, candidate_b):

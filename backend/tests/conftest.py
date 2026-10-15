@@ -555,6 +555,28 @@ def resume_file():
     return (io.BytesIO(b"%PDF-1.4 fake pdf content"), "test_resume.pdf")
 
 
+# ─── Enum formatting ──────────────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def _enums_are_never_stringified(monkeypatch):
+    """str(), format(), f-strings and %s of a domain enum give 'Class.MEMBER'; use .value."""
+    import sys
+
+    from app.models import enums
+
+    def _refuse(self, *_):
+        caller = sys._getframe(1)
+        raise AssertionError(
+            f"{type(self).__name__}.{self.name} was formatted as a string at "
+            f"{caller.f_code.co_filename}:{caller.f_lineno}; use .value"
+        )
+
+    for cls in (enums.ApplicationStage, enums.JobStatus, enums.JobType,
+                enums.ParseStatus, enums.ScoreLabel, enums.CompanySize):
+        monkeypatch.setattr(cls, "__str__", _refuse)
+        monkeypatch.setattr(cls, "__format__", _refuse)
+
+
 # ─── Rate limiting ────────────────────────────────────────────────────────────
 
 @pytest.fixture(autouse=True)

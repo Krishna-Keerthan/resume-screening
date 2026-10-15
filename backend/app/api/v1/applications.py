@@ -130,7 +130,7 @@ def create_application():
         if not job or getattr(job, "is_deleted", False):
             return error(f"Job '{job_id}' not found.", code="JOB_NOT_FOUND", status=404)
 
-        job_status = getattr(job.status, "value", str(job.status))
+        job_status = JobStatus(job.status).value
         if job_status != JobStatus.ACTIVE.value:
             return error(
                 f"Job '{job_id}' is not accepting applications (status: {job_status}).",
@@ -288,7 +288,7 @@ def update_application_stage(application_id: str):
 
         if application.is_terminal:
             return error(
-                f"Application is already in a terminal stage ('{application.stage}'). "
+                f"Application is already in a terminal stage ('{ApplicationStage(application.stage).value}'). "
                 "No further transitions are allowed.",
                 code="TERMINAL_STAGE",
                 status=422,
@@ -349,7 +349,7 @@ def withdraw_application(application_id: str):
         if err:
             return err
 
-        current_stage = getattr(application.stage, "value", str(application.stage))
+        current_stage = ApplicationStage(application.stage).value
         if current_stage in ("hired", "rejected"):
             return error(
                 f"Cannot withdraw an application in '{current_stage}' stage.",
