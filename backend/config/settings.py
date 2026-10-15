@@ -2,9 +2,6 @@
 config/settings.py
 
 Multi-environment configuration module.
-
-FIXES APPLIED:
-  CF-04 — Added CORS_MAX_AGE to avoid browser pre-flight overhead.
 """
 
 import os
@@ -87,7 +84,7 @@ class BaseConfig:
 
     # ── CORS ──────────────────────────────────────────────────────────────────
     ALLOWED_ORIGINS: List[str] = _list_env("ALLOWED_ORIGINS", "http://localhost:3000")
-    CORS_MAX_AGE:    int       = _int_env("CORS_MAX_AGE", 600)   # FIX CF-04
+    CORS_MAX_AGE:    int       = _int_env("CORS_MAX_AGE", 600)
 
     # ── File Uploads ──────────────────────────────────────────────────────────
     UPLOAD_FOLDER:      str = os.getenv("UPLOAD_FOLDER", "uploads/")
