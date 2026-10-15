@@ -483,6 +483,7 @@ def get_ai_summary(application_id: str):
             getattr(application, "candidate", None), "full_name", "Candidate"
         ) or "Candidate"
 
+        from app.models.enums import ApplicationStage
         from app.repositories import JobRepository
         job = JobRepository().get_by_id(application.job_id)
 
@@ -493,7 +494,7 @@ def get_ai_summary(application_id: str):
             matched_skills=getattr(score, "matched_skills_list", []) if score else [],
             missing_skills=getattr(score, "missing_skills_list", []) if score else [],
             experience_years=getattr(resume, "total_experience_years", 0.0) if resume else 0.0,
-            stage=str(application.stage),
+            stage=ApplicationStage(application.stage).value,
         )
 
         return success(data=result, message="AI summary generated.")

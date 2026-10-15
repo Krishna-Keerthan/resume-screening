@@ -295,3 +295,20 @@ class TestAiSummary:
         mock_services.groq.available = True
         client.get(f"{BASE}/{application_a.id}/ai-summary", headers=headers_for(recruiter_b))
         mock_services.groq.generate_candidate_summary.assert_not_called()
+
+    def test_the_prompt_names_the_stage_by_value(
+        self, client, db, application_a, recruiter_a, headers_for, mock_services
+    ):
+        from app.services.groq_service import GroqService
+
+        groq = GroqService(api_key="")
+        groq.available = True
+        prompts = []
+        groq._complete = lambda system, user, max_tokens=None: prompts.append(user)
+        mock_services.groq = groq
+
+        r = client.get(f"{BASE}/{application_a.id}/ai-summary", headers=headers_for(recruiter_a))
+
+        assert r.status_code == 200
+        assert "CURRENT STAGE: applied" in prompts[0]
+        assert "ApplicationStage" not in prompts[0]
