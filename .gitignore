@@ -243,3 +243,6 @@ alembic/versions/
 docs/audit.md
 
 instruction.md
+
+# Per-machine Claude Code permissions
+.claude/settings.local.json
