@@ -11,7 +11,9 @@ We are in a **repair phase**: no new features until the audit items are fixed.
 ## Commands
 <!-- Adjust these if your paths/scripts differ -->
 - The backend lock file (`backend/requirements.txt`) is Linux-only, so run the backend and its tests via Docker or WSL, not native Windows.
-- Backend deps: `pip install -r requirements.txt` for running the app (what the Dockerfile and `render.yaml` install); add `-r requirements-dev.txt` for tests and `seed.py` (pytest, Faker). Edit the `.in` files and recompile with the `uv pip compile` command in each file's header.
+- Backend deps: `pip install -r requirements.txt` for running the app (what the Dockerfile and `render.yaml` install); add `-r requirements-dev.txt` for tests and `seed.py` (pytest, Faker). Edit the `.in` files and recompile from `backend/`. The `--index-strategy unsafe-best-match` flag is required for the PyTorch CPU extra index:
+  - `uv pip compile requirements.in -o requirements.txt --python-version 3.11 --python-platform linux --index-strategy unsafe-best-match`
+  - `uv pip compile requirements-dev.in -c requirements.txt -o requirements-dev.txt --python-version 3.11 --python-platform linux --index-strategy unsafe-best-match`
 - Backend tests: `cd backend && pytest -q` (needs the dev deps)
 - Seed data: `cd backend && python seed.py` (needs the dev deps, because it imports Faker)
 - Single test: `cd backend && pytest -q path/to/test_file.py::test_name`
