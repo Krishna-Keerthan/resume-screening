@@ -1,5 +1,5 @@
 # Direct dependencies only. Regenerate requirements.txt with:
-#   uv pip compile requirements.in -o requirements.txt --python-version 3.11 #       --python-platform linux --index-strategy unsafe-best-match
+#   uv pip compile requirements.in -o requirements.txt --python-version 3.11 --python-platform linux --index-strategy unsafe-best-match --emit-index-url
 # Test and seed tooling lives in requirements-dev.in.
 
 # CPU-only PyTorch wheels (avoids the multi-GB CUDA build)
