@@ -135,6 +135,8 @@ def _init_extensions(app: Flask) -> None:
     from app.core.rate_limit import init_rate_limiting
     init_rate_limiting(app, limiter)
 
+    # Flask-CORS also reads the CORS_* keys of app.config itself: CORS_MAX_AGE sets
+    # Access-Control-Max-Age, which is why it is not passed here.
     cors.init_app(
         app,
         resources={r"/api/*": {"origins": origins}},
