@@ -28,7 +28,7 @@ def _read(*parts):
 
 def _launch_commands():
     procfile = next(l for l in _read(_BACKEND, "Procfile").splitlines() if l.startswith("web:"))
-    render = re.search(r"startCommand:\s*(.+)", _read(_BACKEND, "render.yaml")).group(1)
+    render = re.search(r"startCommand:\s*(.+)", _read(_REPO, "render.yaml")).group(1)
     docker_cmd = re.search(r"^CMD\s+(\[.*\])\s*$", _read(_BACKEND, "Dockerfile"), re.M).group(1)
     return {
         "Procfile": procfile,

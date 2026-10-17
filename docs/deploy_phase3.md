@@ -125,7 +125,7 @@ per deploy, before the app starts. Production never calls `db.create_all()`
 
 ## How the server is started
 
-Docker, the Procfile and `render.yaml` all run the same thing from `backend/`:
+Docker, the Procfile and `render.yaml` (root; `rootDir: backend`) all run the same thing from `backend/`:
 `gunicorn -c gunicorn.conf.py wsgi:app` (Render and the Procfile run
 `alembic upgrade head` first). `gunicorn.conf.py` reads workers, timeout, bind
 address and log level from `config/settings.py`, so no launcher repeats them:
@@ -175,10 +175,12 @@ with the instance limit; RSS counts shared pages in every process.
 
 1. **Accounts and secrets:** Cloudinary cloud name, API key and secret; a Groq API key
    (optional, LLM features are off without it).
-2. **Check `render.yaml`'s location.** It lives in `backend/` and has no `rootDir`.
-   Render looks for the blueprint at the repository root and builds from the root
-   unless `rootDir: backend` is set on the service, so the blueprint path and
-   `rootDir` need checking before the first sync. This has not been tried.
+2. **The blueprint is `render.yaml` in the repository root** (where Render looks by
+   default). The web service uses `runtime: python` with `rootDir: backend`, so its
+   build and start commands run from `backend/`. There is no Docker field to set:
+   Render does not use the Dockerfile for this service. Field names come from
+   https://render.com/docs/blueprint-spec. The file was also checked against
+   https://render.com/schema/render.yaml.json (see the commit message for how).
 3. **Create the Render blueprint** (web service, `ats-postgres`, `ats-ratelimit`
    Key Value). Fill the `sync: false` values: `CLOUDINARY_CLOUD_NAME`,
    `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `GROQ_API_KEY`. Leave

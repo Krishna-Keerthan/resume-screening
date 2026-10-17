@@ -1,11 +1,16 @@
 
 # render.yaml — Render deployment configuration
-# https://render.com/docs/render-yaml
+# Field names: https://render.com/docs/blueprint-spec
+# Schema:      https://render.com/schema/render.yaml.json
+#
+# Render reads this file from the repository root. The backend lives in backend/, so the
+# web service sets rootDir: backend and its build and start commands run from there.
 
 services:
   - type: web
     name: ats-backend
     runtime: python
+    rootDir: backend
     buildCommand: pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
     startCommand: alembic upgrade head && gunicorn -c gunicorn.conf.py wsgi:app
     envVars:
