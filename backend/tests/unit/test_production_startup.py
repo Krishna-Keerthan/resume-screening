@@ -1,9 +1,12 @@
 """
-Who creates the database tables: Alembic in production, create_app() everywhere else.
+Booting the app the way each environment does.
 
-In production the start command runs `alembic upgrade head` before gunicorn. If
+Tables: Alembic builds them in production, create_app() everywhere else. In production the start command runs `alembic upgrade head` before gunicorn. If
 the app also called db.create_all(), whichever ran first on an empty database
 would win and the other would fail or skip, leaving the schema unmanaged.
+
+Storage: an incomplete Cloudinary setup must stop production from starting
+rather than let uploads go somewhere else.
 
 Each case boots the app in a fresh interpreter: create_app() re-initialises the
 shared rate limiter and reads settings from the environment at import, so doing
@@ -35,18 +38,24 @@ print(json.dumps({"create_all_calls": len(calls)}))
 """
 
 
-def _boot(env_name, database_file):
+def _run(env_name, database_file, extra_env=None):
     env = {
         **os.environ,
         "APP_ENV": env_name,
         "DATABASE_URL": f"sqlite:///{database_file}",
         "SECRET_KEY": "x" * 64,
         "RATE_LIMIT_STORAGE_URL": "redis://localhost:1/0",
+        **(extra_env or {}),
     }
-    out = subprocess.run(
+    return subprocess.run(
         [sys.executable, "-c", _SCRIPT, env_name],
-        env=env, capture_output=True, text=True, check=True, cwd=_BACKEND_DIR,
+        env=env, capture_output=True, text=True, cwd=_BACKEND_DIR,
     )
+
+
+def _boot(env_name, database_file):
+    out = _run(env_name, database_file)
+    assert out.returncode == 0, out.stderr
     return json.loads(out.stdout.strip().splitlines()[-1])
 
 
@@ -76,3 +85,29 @@ def test_development_startup_still_creates_the_tables(tmp_path):
 
     assert result["create_all_calls"] == 1
     assert {"candidates", "recruiters", "jobs", "resumes"} <= _tables(path)
+
+
+# ─── File storage ─────────────────────────────────────────────────────────────
+
+_CLOUDINARY = {
+    "STORAGE_PROVIDER": "cloudinary",
+    "CLOUDINARY_CLOUD_NAME": "demo-cloud",
+    "CLOUDINARY_API_KEY": "key-123",
+    "CLOUDINARY_API_SECRET": "secret-456",
+}
+
+
+@pytest.mark.parametrize("missing", ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"])
+def test_production_refuses_to_start_with_an_incomplete_cloudinary_setup(tmp_path, missing):
+    out = _run("production", tmp_path / "prod.db", {**_CLOUDINARY, missing: ""})
+
+    assert out.returncode != 0
+    assert "StorageError" in out.stderr
+    assert missing in out.stderr
+    assert "secret-456" not in out.stderr
+
+
+def test_production_starts_with_a_complete_cloudinary_setup(tmp_path):
+    out = _run("production", tmp_path / "prod.db", _CLOUDINARY)
+
+    assert out.returncode == 0, out.stderr

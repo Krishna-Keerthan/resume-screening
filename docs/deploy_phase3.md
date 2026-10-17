@@ -37,6 +37,7 @@ browser --https--> Vercel (app domain) --rewrite /api/v1/*--> Render (Flask)
 | `TRUSTED_PROXY_HOPS` | `2` (set in `render.yaml`; verify as described below) |
 | `LOG_PROXY_CHAIN` | `true` for the first deploy only (set in `render.yaml`) |
 | `REFRESH_COOKIE_SECURE` | nothing to set: defaults to `true` in production |
+| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | from your Cloudinary dashboard (`sync: false`: Render asks for them). `STORAGE_PROVIDER=cloudinary` is set in `render.yaml`. If any of the three is empty the app refuses to start, so a bad deploy fails loudly instead of writing résumés to Render's disk, which is wiped on every deploy. |
 
 Always use the Vercel domain. Logging in on the `*.onrender.com` address directly
 would store the cookie on a different host.
