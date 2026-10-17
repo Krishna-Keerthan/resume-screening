@@ -57,8 +57,6 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 
 _ALGORITHM   = "HS256"
-_ACCESS_TTL  = timedelta(minutes=15)
-_REFRESH_TTL = timedelta(days=7)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -104,8 +102,8 @@ def create_tokens(
     now    = datetime.now(timezone.utc)
     jti    = str(uuid.uuid4())
 
-    access_ttl  = timedelta(minutes=current_app.config.get("JWT_ACCESS_TTL_MINUTES",  15))
-    refresh_ttl = timedelta(days=current_app.config.get("JWT_REFRESH_TTL_DAYS", 7))
+    access_ttl  = timedelta(minutes=current_app.config["JWT_ACCESS_TTL_MINUTES"])
+    refresh_ttl = timedelta(days=current_app.config["JWT_REFRESH_TTL_DAYS"])
 
     access_payload = {
         "sub":  user_id,

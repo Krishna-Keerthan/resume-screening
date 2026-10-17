@@ -444,3 +444,14 @@ def test_the_cleared_cookie_has_the_same_scope_as_the_one_that_was_set(
     assert value == f"{COOKIE}="
     assert attrs["max-age"] == "0"
     assert (attrs["path"], attrs["samesite"], attrs["httponly"], "secure" in attrs) == ("/", "Lax", True, True)
+
+
+def test_the_access_token_lifetime_follows_config(app, candidate_a, monkeypatch):
+    from app.core.security import create_tokens, decode_access_token
+
+    monkeypatch.setitem(app.config, "JWT_ACCESS_TTL_MINUTES", 5)
+    with app.app_context():
+        access, _, _ = create_tokens(candidate_a.id, "candidate")
+        payload = decode_access_token(access)
+
+    assert payload["exp"] - payload["iat"] == 5 * 60

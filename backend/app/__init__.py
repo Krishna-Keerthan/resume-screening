@@ -341,8 +341,8 @@ def _validate_config(app: Flask) -> None:
             )
 
     # ── JWT TTL sanity checks ─────────────────────────────────────────────────
-    access_ttl  = app.config.get("JWT_ACCESS_TTL_MINUTES", 15)
-    refresh_ttl = app.config.get("JWT_REFRESH_TTL_DAYS", 7)
+    access_ttl  = app.config["JWT_ACCESS_TTL_MINUTES"]
+    refresh_ttl = app.config["JWT_REFRESH_TTL_DAYS"]
 
     if access_ttl < 1:
         issues.append(f"JWT_ACCESS_TTL_MINUTES={access_ttl} is too short (minimum 1).")
