@@ -24,6 +24,10 @@ services:
           type: keyvalue
           name: ats-ratelimit
           property: connectionString   # production refuses memory://
+      - key: TRUSTED_PROXY_HOPS
+        value: "2"   # Vercel, then Render's proxy; verify with LOG_PROXY_CHAIN
+      - key: LOG_PROXY_CHAIN
+        value: "true"   # TEMPORARY: set to false or delete once the hop count is verified
       - key: ALLOWED_ORIGINS
         sync: false   # Set in Render dashboard — your Vercel URL
       - key: GROQ_API_KEY

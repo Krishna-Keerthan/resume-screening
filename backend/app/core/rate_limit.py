@@ -16,7 +16,7 @@ Callers are told apart by:
 
 Key functions never raise: an unusable body or token falls back to the IP.
 The client IP is request.remote_addr, which create_app() takes from the
-proxy's X-Forwarded-For (ProxyFix, one trusted hop).
+proxy's X-Forwarded-For (ProxyFix, TRUSTED_PROXY_HOPS trusted hops).
 """
 from __future__ import annotations
 

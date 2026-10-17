@@ -135,14 +135,34 @@ def _xff(client, value):
     return client.get(PING, headers={"X-Forwarded-For": value})
 
 
-def test_the_client_ip_is_the_address_the_proxy_appended_not_what_the_client_claimed(client, limit):
+def test_the_client_ip_is_the_second_to_last_entry_with_two_trusted_hops(client, limit):
+    # Chain as the app sees it: <anything the caller sent>, <client IP>, <first proxy's peer>
     limit("RATE_LIMIT_DEFAULT", "1 per minute")
     assert _xff(client, "5.5.5.5, 9.9.9.9").status_code == 200
-    # a different forged prefix, same real client: still the same bucket
-    assert _xff(client, "6.6.6.6, 9.9.9.9").status_code == 429
-    assert _xff(client, "1.2.3.4, 5.5.5.5, 9.9.9.9").status_code == 429
+    # a forged leading entry, same real client: still the same bucket
+    assert _xff(client, "6.6.6.6, 5.5.5.5, 9.9.9.9").status_code == 429
+    assert _xff(client, "1.2.3.4, 7.7.7.7, 5.5.5.5, 9.9.9.9").status_code == 429
+    # the last entry is a proxy hop, not the caller: changing it keeps the bucket
+    assert _xff(client, "5.5.5.5, 8.8.8.8").status_code == 429
     # a different real client: its own bucket
-    assert _xff(client, "5.5.5.5, 8.8.8.8").status_code == 200
+    assert _xff(client, "4.4.4.4, 9.9.9.9").status_code == 200
+
+
+def test_a_chain_shorter_than_the_trusted_hops_falls_back_to_the_socket_address(client, limit):
+    limit("RATE_LIMIT_DEFAULT", "1 per minute")
+    socket = {"REMOTE_ADDR": "10.2.2.2"}
+
+    def get(forwarded):
+        return client.get(PING, headers={"X-Forwarded-For": forwarded}, environ_overrides=socket)
+
+    assert get("5.5.5.5").status_code == 200
+    # one entry cannot name the client under two hops, so the claim is ignored
+    assert get("6.6.6.6").status_code == 429
+
+
+def test_the_forwarded_chain_is_trusted_to_the_configured_number_of_hops(app):
+    assert app.config["TRUSTED_PROXY_HOPS"] == 2
+    assert app.wsgi_app.x_for == app.config["TRUSTED_PROXY_HOPS"]
 
 
 def test_without_a_forwarded_header_the_socket_address_is_used(client, limit):

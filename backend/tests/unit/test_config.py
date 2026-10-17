@@ -124,3 +124,54 @@ def test_production_config_accepts_a_shared_rate_limit_store(monkeypatch):
     monkeypatch.setattr(ProductionConfig, "RATE_LIMIT_STORAGE_URL", "redis://cache:6379/0")
     assert get_config("production").RATE_LIMIT_STORAGE_URL == "redis://cache:6379/0"
 
+
+
+# ─── proxy and cookie settings ────────────────────────────────────────────────
+
+_PROXY_KEYS = ("TRUSTED_PROXY_HOPS", "LOG_PROXY_CHAIN", "REFRESH_COOKIE_SECURE")
+
+
+def _read_settings(env_name, overrides):
+    """Read the proxy/cookie settings in a fresh interpreter: they are read from the environment at import."""
+    import json
+    import os
+    import subprocess
+    import sys
+
+    env = {k: v for k, v in os.environ.items() if k not in _PROXY_KEYS}
+    env.update({
+        "SECRET_KEY": "x" * 64,
+        "DATABASE_URL": "postgresql://u:p@db/ats",
+        "RATE_LIMIT_STORAGE_URL": "redis://cache:6379/0",
+        **overrides,
+    })
+    script = (
+        "import json\n"
+        "from config import get_config\n"
+        f"cfg = get_config({env_name!r})\n"
+        f"print(json.dumps({{k: getattr(cfg, k) for k in {list(_PROXY_KEYS)!r}}}))\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", script], env=env, capture_output=True, text=True,
+        check=True, cwd=os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+    )
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+@pytest.mark.parametrize("env_name, hops, secure", [
+    ("development", 0, False),
+    ("production", 2, True),
+    ("testing", 2, False),
+])
+def test_proxy_and_cookie_defaults_per_environment(env_name, hops, secure):
+    assert _read_settings(env_name, {}) == {
+        "TRUSTED_PROXY_HOPS": hops, "LOG_PROXY_CHAIN": False, "REFRESH_COOKIE_SECURE": secure,
+    }
+
+
+def test_production_reads_the_hop_count_and_the_cookie_flag_from_the_environment():
+    got = _read_settings(
+        "production",
+        {"TRUSTED_PROXY_HOPS": "3", "LOG_PROXY_CHAIN": "true", "REFRESH_COOKIE_SECURE": "false"},
+    )
+    assert got == {"TRUSTED_PROXY_HOPS": 3, "LOG_PROXY_CHAIN": True, "REFRESH_COOKIE_SECURE": False}

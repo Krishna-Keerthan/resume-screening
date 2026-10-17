@@ -67,6 +67,14 @@ class BaseConfig:
     PORT:    int = _int_env("PORT", 5000)
     WORKERS: int = _int_env("WORKERS", 2)
 
+    # ── Reverse proxies and the refresh cookie ────────────────────────────────
+    # Proxies in front of the app that each append to X-Forwarded-For. ProxyFix
+    # trusts exactly this many entries from the right; 0 ignores the header.
+    TRUSTED_PROXY_HOPS:    int  = _int_env("TRUSTED_PROXY_HOPS", 0)
+    # TEMPORARY: log the forwarded chain on login to verify TRUSTED_PROXY_HOPS.
+    LOG_PROXY_CHAIN:       bool = _bool_env("LOG_PROXY_CHAIN", False)
+    REFRESH_COOKIE_SECURE: bool = _bool_env("REFRESH_COOKIE_SECURE", False)
+
     # ── Database ──────────────────────────────────────────────────────────────
     SQLALCHEMY_TRACK_MODIFICATIONS: bool = False
     SQLALCHEMY_ECHO:                bool = False
@@ -169,6 +177,9 @@ class ProductionConfig(BaseConfig):
     TESTING:    bool = False
     LOG_LEVEL:  str  = "WARNING"
     LOG_FORMAT: str  = "json"
+    # Vercel's proxy, then Render's. Confirm with LOG_PROXY_CHAIN after a deploy.
+    TRUSTED_PROXY_HOPS:    int  = _int_env("TRUSTED_PROXY_HOPS", 2)
+    REFRESH_COOKIE_SECURE: bool = _bool_env("REFRESH_COOKIE_SECURE", True)
 
     def __init__(self) -> None:
         # Enforce a non-default SECRET_KEY in production
@@ -205,6 +216,7 @@ class TestingConfig(BaseConfig):
     WTF_CSRF_ENABLED:        bool = False
     LOG_LEVEL:               str  = "ERROR"
     SECRET_KEY:              str  = "test-secret-key-not-for-production"
+    TRUSTED_PROXY_HOPS:      int  = 2
     # Limiter runs for real, but nothing trips it unless a test lowers a limit.
     RATE_LIMIT_DEFAULT:        str = "1000000 per minute"
     RATE_LIMIT_LOGIN_IP:       str = "1000000 per minute"

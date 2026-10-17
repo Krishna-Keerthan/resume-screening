@@ -392,3 +392,55 @@ def test_a_dead_accounts_token_is_rejected_with_invalid_token_on_logout(
 
     assert r.status_code == 401
     assert r.get_json()["error"]["error_code"] == "INVALID_TOKEN"
+
+
+# ─── Refresh cookie attributes ────────────────────────────────────────────────
+
+def _cookie_attributes(response) -> tuple[str, dict]:
+    header = next(h for h in response.headers.getlist("Set-Cookie") if h.startswith(f"{COOKIE}="))
+    first, *attrs = [part.strip() for part in header.split(";")]
+    return first, {a.split("=", 1)[0].lower(): (a.split("=", 1)[1] if "=" in a else True) for a in attrs}
+
+
+def test_the_refresh_cookie_is_first_party_httponly_and_lax(client, candidate_a, account_password):
+    _, attrs = _cookie_attributes(_login(client, candidate_a, "candidate", account_password))
+
+    assert attrs["httponly"] is True
+    assert attrs["samesite"] == "Lax"
+    assert attrs["path"] == "/"
+    assert "domain" not in attrs
+
+
+@pytest.mark.parametrize("secure", [True, False])
+def test_the_secure_flag_comes_from_config_not_from_debug(
+    app, client, candidate_a, account_password, monkeypatch, secure
+):
+    assert app.config["DEBUG"] is True
+    monkeypatch.setitem(app.config, "REFRESH_COOKIE_SECURE", secure)
+
+    _, attrs = _cookie_attributes(_login(client, candidate_a, "candidate", account_password))
+
+    assert ("secure" in attrs) is secure
+
+
+def test_the_cookie_lifetime_follows_the_refresh_token_lifetime(
+    app, client, candidate_a, account_password, monkeypatch
+):
+    monkeypatch.setitem(app.config, "JWT_REFRESH_TTL_DAYS", 1)
+
+    _, attrs = _cookie_attributes(_login(client, candidate_a, "candidate", account_password))
+
+    assert attrs["max-age"] == str(24 * 60 * 60)
+
+
+def test_the_cleared_cookie_has_the_same_scope_as_the_one_that_was_set(
+    app, client, candidate_a, headers_for, monkeypatch
+):
+    monkeypatch.setitem(app.config, "REFRESH_COOKIE_SECURE", True)
+
+    r = client.post(f"{BASE}/logout", headers=headers_for(candidate_a))
+
+    value, attrs = _cookie_attributes(r)
+    assert value == f"{COOKIE}="
+    assert attrs["max-age"] == "0"
+    assert (attrs["path"], attrs["samesite"], attrs["httponly"], "secure" in attrs) == ("/", "Lax", True, True)

@@ -68,11 +68,11 @@ def create_app(env: str | None = None) -> Flask:
     app.url_map.strict_slashes = False
     app.config.from_object(config_class)
 
-    # Exactly one trusted proxy (Render's load balancer) sits in front of the
-    # app: request.remote_addr becomes the last X-Forwarded-For entry, the one
-    # that proxy appended, and anything the client put before it is ignored.
-    # Do not expose the app directly to the internet with this enabled.
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
+    # TRUSTED_PROXY_HOPS reverse proxies append to X-Forwarded-For before a
+    # request reaches the app. request.remote_addr becomes the entry that many
+    # places from the right; anything the client put further left is ignored.
+    # Do not expose the app directly to the internet with this above 0.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=app.config["TRUSTED_PROXY_HOPS"])
 
     # ── 2. Configure logging (must be first — everything after logs) ──────────
     configure_logging(
@@ -155,7 +155,9 @@ def _init_database(app: Flask) -> None:
 def _register_middleware(app: Flask) -> None:
     """Register before/after request hooks."""
     from app.core.middleware import register_middleware
+    from app.core.proxy_chain_log import register_proxy_chain_log
     register_middleware(app)
+    register_proxy_chain_log(app)
 
 
 def _init_services(app: Flask) -> None:

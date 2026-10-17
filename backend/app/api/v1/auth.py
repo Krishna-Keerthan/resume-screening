@@ -12,6 +12,7 @@ from datetime import datetime, timezone, timedelta
 
 from flask import Blueprint, g, make_response, request
 
+from app.core.cookies import REFRESH_COOKIE_NAME, clear_refresh_cookie, set_refresh_cookie
 from app.core.database import db
 from app.core.extensions import limiter
 from app.core.rate_limit import config_limit, email_key, ip_email_key, ip_key
@@ -41,46 +42,10 @@ logger = logging.getLogger(__name__)
 
 auth_bp = Blueprint("auth", __name__)
 
-_COOKIE_NAME     = "refresh_token"
-_COOKIE_MAX_AGE  = 7 * 24 * 60 * 60
-_COOKIE_SECURE   = False
-_COOKIE_HTTPONLY = True
-_COOKIE_SAMESITE = "Lax"
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
-
-def _cookie_secure() -> bool:
-    from flask import current_app
-    return not current_app.config.get("DEBUG", True)
-    # return current_app.config.get("ENV") == "production"
-
-
-def _set_refresh_cookie(response, refresh_token: str) -> None:
-    response.set_cookie(
-        _COOKIE_NAME,
-        refresh_token,
-        max_age=_COOKIE_MAX_AGE,
-        httponly=_COOKIE_HTTPONLY,
-        secure=_cookie_secure(),
-        samesite=_COOKIE_SAMESITE,
-        path="/",
-    )
-
-
-def _clear_refresh_cookie(response) -> None:
-    response.set_cookie(
-        _COOKIE_NAME,
-        "",
-        max_age=0,
-        httponly=_COOKIE_HTTPONLY,
-        secure=_cookie_secure(),
-        samesite=_COOKIE_SAMESITE,
-        path="/",
-    )
-
 
 def _store_refresh_token(jti: str, raw_refresh: str, user_id: str, role: str) -> None:
     """
@@ -108,7 +73,7 @@ def _reject_dead_session(stored):
         code="TOKEN_INVALID",
         status=401,
     ))
-    _clear_refresh_cookie(resp)
+    clear_refresh_cookie(resp)
     return resp
 
 
@@ -120,7 +85,7 @@ def _reject_reused_token(user_id: str):
     resp = make_response(*error(
         "Security alert: session invalidated. Please log in again.",
         code="TOKEN_REUSED", status=401))
-    _clear_refresh_cookie(resp)
+    clear_refresh_cookie(resp)
     return resp
 
 
@@ -155,7 +120,7 @@ def _auth_response(user_dict: dict, role: str, status: int = 200):
 
     from flask import jsonify
     response = make_response(jsonify(body), status)
-    _set_refresh_cookie(response, new_refresh_token)
+    set_refresh_cookie(response, new_refresh_token)
     return response
 
 
@@ -357,7 +322,7 @@ def login():
 @auth_bp.post("/refresh")
 @limiter.limit(config_limit("RATE_LIMIT_REFRESH"), key_func=ip_key, scope="refresh", override_defaults=False)
 def refresh():
-    raw_refresh = request.cookies.get(_COOKIE_NAME)
+    raw_refresh = request.cookies.get(REFRESH_COOKIE_NAME)
     if not raw_refresh:
         return error("Refresh token cookie missing. Please log in again.",
                      code="MISSING_TOKEN", status=401)
@@ -366,7 +331,7 @@ def refresh():
         payload = decode_refresh_token(raw_refresh)
     except AuthError as exc:
         resp = make_response(*error(str(exc), code=exc.code, status=401))
-        _clear_refresh_cookie(resp)
+        clear_refresh_cookie(resp)
         return resp
 
     jti     = payload["jti"]
@@ -382,14 +347,14 @@ def refresh():
             code="TOKEN_INVALID",
             status=401,
         ))
-        _clear_refresh_cookie(resp)
+        clear_refresh_cookie(resp)
         return resp
 
     if not stored.revoked and not stored.is_valid():
         resp = make_response(*error(
             "Session expired. Please log in again.",
             code="REFRESH_EXPIRED", status=401))
-        _clear_refresh_cookie(resp)
+        clear_refresh_cookie(resp)
         return resp
 
     try:
@@ -433,7 +398,7 @@ def refresh():
         }
         from flask import jsonify
         response = make_response(jsonify(body), 200)
-        _set_refresh_cookie(response, new_refresh_token)
+        set_refresh_cookie(response, new_refresh_token)
         return response
 
     except Exception:
@@ -449,7 +414,7 @@ def refresh():
 @auth_bp.post("/logout")
 @require_auth()
 def logout():
-    raw_refresh = request.cookies.get(_COOKIE_NAME)
+    raw_refresh = request.cookies.get(REFRESH_COOKIE_NAME)
 
     if raw_refresh:
         tokens = RefreshTokenRepository()
@@ -467,7 +432,7 @@ def logout():
                 return error("Logout failed.", code="INTERNAL_ERROR", status=500)
 
     resp = make_response(*success(data=None, message="Logged out successfully."))
-    _clear_refresh_cookie(resp)
+    clear_refresh_cookie(resp)
     logger.info("User logged out", extra={"user_id": g.jwt_user_id, "role": g.jwt_role})
     return resp
 
@@ -500,7 +465,7 @@ def logout_all():
                 message=f"Signed out from {count} device(s).",
             )
         )
-        _clear_refresh_cookie(resp)
+        clear_refresh_cookie(resp)
         return resp
 
     except Exception:
@@ -582,7 +547,7 @@ def change_password():
         resp = make_response(
             *success(data=None, message="Password changed. Please log in again.")
         )
-        _clear_refresh_cookie(resp)
+        clear_refresh_cookie(resp)
         return resp
 
     except Exception:
