@@ -59,7 +59,7 @@ class Resume( SoftDeleteMixin, BaseModel):
     file_path:    Mapped[str]        = mapped_column(String(1000), nullable=False)
     storage_key:  Mapped[str | None] = mapped_column(          
         String(500), nullable=True,
-        comment="Cloudinary public_id (prod) or local file path (dev) — used for deletion"
+        comment="Object key in the file store (Supabase Storage in prod) or local file path (dev) — used for deletion"
     )
     file_size_kb: Mapped[int | None] = mapped_column(Integer,      nullable=True)
     file_type:    Mapped[str]        = mapped_column(

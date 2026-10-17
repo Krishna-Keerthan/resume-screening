@@ -110,8 +110,8 @@ The Render start command is `alembic upgrade head && gunicorn ...`: it runs once
 per deploy, before the app starts. Production never calls `db.create_all()`
 (`CREATE_TABLES_ON_STARTUP` is false there; development and tests keep it).
 
-- **First deploy, empty database:** `upgrade head` runs 0001, 0002, 0003, creates
-  every table and `alembic_version` (at `0003`), then gunicorn starts. Nothing else
+- **First deploy, empty database:** `upgrade head` runs 0001, 0002, 0003, 0004, creates
+  every table and `alembic_version` (at `0004`), then gunicorn starts. Nothing else
   to do. Checked locally against an empty Postgres 16 with `APP_ENV=production`.
 - **Later deploys:** nothing to apply means no change; a new migration is applied
   before the new code serves traffic.
@@ -237,7 +237,7 @@ higher than the memory it adds. Compare the master's plus the worker's growth wi
    `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_BUCKET`, `GROQ_API_KEY`. Leave
    `ALLOWED_ORIGINS` as a placeholder for now. Keep one instance.
 4. **Let the first deploy run.** The log shows `alembic upgrade head` running 0001,
-   0002 and 0003, then gunicorn loading the model and starting. If a Supabase
+   0002, 0003 and 0004, then gunicorn loading the model and starting. If a Supabase
    value is missing, the app refuses to start and says which one is missing.
 5. **Check the backend directly:** `GET https://<service>.onrender.com/api/v1/health`
    returns 200. Do not log in here.
