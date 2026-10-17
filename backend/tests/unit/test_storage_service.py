@@ -6,17 +6,20 @@ from unittest.mock import patch
 import pytest
 
 
-def test_cloudinary_backend_selected_when_configured():
-    from app.services.storage_service import CloudinaryStorageBackend, StorageService
+def test_supabase_backend_selected_when_configured():
+    from app.services.storage_service import StorageService, SupabaseStorageBackend
 
-    backend = StorageService.from_config({
-        "STORAGE_PROVIDER":      "cloudinary",
-        "CLOUDINARY_CLOUD_NAME": "demo-cloud",
-        "CLOUDINARY_API_KEY":    "key-123",
-        "CLOUDINARY_API_SECRET": "secret-456",
-    })
-    assert isinstance(backend, CloudinaryStorageBackend)
-    assert backend.provider == "cloudinary"
+    backend = StorageService.from_config(_SUPABASE)
+    assert isinstance(backend, SupabaseStorageBackend)
+    assert backend.provider == "supabase"
+
+
+_SUPABASE = {
+    "STORAGE_PROVIDER":          "supabase",
+    "SUPABASE_URL":              "https://project.supabase.co",
+    "SUPABASE_SERVICE_ROLE_KEY": "key-123",
+    "SUPABASE_BUCKET":           "resumes",
+}
 
 
 def test_local_backend_is_default(tmp_path):
@@ -26,23 +29,6 @@ def test_local_backend_is_default(tmp_path):
     assert isinstance(backend, LocalStorageBackend)
 
 
-_CLOUDINARY = {
-    "STORAGE_PROVIDER":      "cloudinary",
-    "CLOUDINARY_CLOUD_NAME": "demo-cloud",
-    "CLOUDINARY_API_KEY":    "key-123",
-    "CLOUDINARY_API_SECRET": "secret-456",
-}
-
-
-@pytest.mark.parametrize("missing", [
-    "CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET",
-])
-def test_incomplete_cloudinary_config_raises(missing):
-    from app.services.storage_service import StorageError, StorageService
-
-    config = {**_CLOUDINARY, missing: ""}
-    with pytest.raises(StorageError, match=missing):
-        StorageService.from_config(config)
 
 
 def _create_app_with(settings):
@@ -60,16 +46,16 @@ def _create_app_with(settings):
             p.stop()
 
 
-def test_startup_fails_when_cloudinary_credentials_missing():
+def test_startup_fails_when_a_supabase_setting_is_missing():
     from app.services.storage_service import StorageError
 
-    with pytest.raises(StorageError, match="CLOUDINARY_API_SECRET"):
-        _create_app_with({**_CLOUDINARY, "CLOUDINARY_API_SECRET": ""})
+    with pytest.raises(StorageError, match="SUPABASE_SERVICE_ROLE_KEY"):
+        _create_app_with({**_SUPABASE, "SUPABASE_SERVICE_ROLE_KEY": ""})
 
 
-def test_startup_succeeds_with_complete_cloudinary_credentials():
-    app = _create_app_with(_CLOUDINARY)
-    assert app.config["STORAGE_PROVIDER"] == "cloudinary"
+def test_startup_succeeds_with_a_complete_supabase_setup():
+    app = _create_app_with(_SUPABASE)
+    assert app.config["STORAGE_PROVIDER"] == "supabase"
 
 
 # ─── Storage keys: random, never the user's filename, never public ────────────
@@ -122,63 +108,3 @@ def test_local_delete_removes_the_file_and_ignores_a_missing_one(local):
 
 def test_local_backend_has_no_public_url(local):
     assert local.signed_url(local.upload(b"x", "pdf").key, ttl=300) is None
-
-
-@pytest.fixture()
-def cloud():
-    from app.services.storage_service import CloudinaryStorageBackend
-    with patch("cloudinary.config"):
-        return CloudinaryStorageBackend("demo", "key", "secret", folder="resumes")
-
-
-def test_cloudinary_upload_is_authenticated_raw_with_a_random_public_id(cloud):
-    with patch("cloudinary.uploader.upload") as upload:
-        upload.return_value = {"public_id": "resumes/abc.pdf", "bytes": 2048,
-                               "secure_url": "https://res.cloudinary.com/demo/raw/upload/resumes/abc.pdf"}
-        result = cloud.upload(b"%PDF-1.4", "pdf")
-
-    args, kwargs = upload.call_args
-    assert args == (b"%PDF-1.4",)
-    public_id = kwargs.pop("public_id")
-    assert re.fullmatch(r"[0-9a-f]{32}\.pdf", public_id)
-    assert kwargs == {
-        "resource_type": "raw", "type": "authenticated", "folder": "resumes",
-        "use_filename": False, "unique_filename": False, "overwrite": False, "tags": ["resume"],
-    }
-    assert result.key == "resumes/abc.pdf"
-    assert result.size_kb == 2
-    assert result.provider == "cloudinary"
-    assert not hasattr(result, "url")
-
-
-def test_cloudinary_upload_failure_raises_storage_error(cloud):
-    from app.services.storage_service import StorageError
-    with patch("cloudinary.uploader.upload", side_effect=RuntimeError("boom")):
-        with pytest.raises(StorageError):
-            cloud.upload(b"x", "pdf")
-
-
-def test_cloudinary_delete_passes_the_authenticated_raw_kwargs(cloud):
-    with patch("cloudinary.uploader.destroy", return_value={"result": "ok"}) as destroy:
-        cloud.delete("resumes/abc.pdf")
-    assert destroy.call_args_list == [call("resumes/abc.pdf", resource_type="raw", type="authenticated")]
-
-
-def test_cloudinary_signed_url_expires_after_the_ttl(cloud):
-    with patch("time.time", return_value=1_000_000.9), \
-         patch("cloudinary.utils.private_download_url", return_value="https://signed") as sign:
-        url = cloud.signed_url("resumes/abc.pdf", ttl=300)
-    assert url == "https://signed"
-    assert sign.call_args_list == [
-        call("resumes/abc.pdf", "", resource_type="raw", type="authenticated", expires_at=1_000_300)
-    ]
-
-
-def test_cloudinary_download_bytes_fetches_a_signed_url(cloud):
-    response = MagicMock()
-    response.__enter__.return_value.read.return_value = b"%PDF-1.4"
-    with patch.object(type(cloud), "signed_url", return_value="https://signed") as sign, \
-         patch("urllib.request.urlopen", return_value=response) as urlopen:
-        assert cloud.download_bytes("resumes/abc.pdf") == b"%PDF-1.4"
-    sign.assert_called_once()
-    assert urlopen.call_args.args[0] == "https://signed"

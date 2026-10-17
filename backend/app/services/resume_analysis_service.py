@@ -6,7 +6,7 @@ High-level resume analysis service.
 Changes vs previous version:
   - analyse() with force_reparse=True no longer calls parser.parse(file_path).
     That code path assumed a local file path, which breaks on Render
-    (ephemeral filesystem) and with Cloudinary URLs.
+    (ephemeral filesystem) and with a remote file store.
 
   - The route (resumes.py:analyze_resume) now handles force_reparse itself:
       1. Downloads bytes from StorageService

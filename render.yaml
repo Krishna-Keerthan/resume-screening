@@ -40,16 +40,16 @@ services:
         sync: false   # Set in Render dashboard — your Vercel URL
       - key: GROQ_API_KEY
         sync: false   # Set in Render dashboard
-      # Render's disk is wiped on every deploy: résumés must live in Cloudinary.
+      # Render's disk is wiped on every deploy: résumés live in a PRIVATE Supabase Storage bucket.
       # The app refuses to start if any of the three values below is empty.
       - key: STORAGE_PROVIDER
-        value: cloudinary
-      - key: CLOUDINARY_CLOUD_NAME
-        sync: false   # Set in Render dashboard
-      - key: CLOUDINARY_API_KEY
-        sync: false   # Set in Render dashboard
-      - key: CLOUDINARY_API_SECRET
-        sync: false   # Set in Render dashboard
+        value: supabase
+      - key: SUPABASE_URL
+        sync: false   # Set in Render dashboard: https://<project>.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false   # Set in Render dashboard; server-side only, never in the frontend
+      - key: SUPABASE_BUCKET
+        sync: false   # Set in Render dashboard: the private bucket's name
       - key: LOG_LEVEL
         value: WARNING
       - key: LOG_FORMAT

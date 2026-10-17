@@ -9,11 +9,18 @@ the REST routes the supabase-py client uses):
     DELETE /storage/v1/object/{bucket}                {"prefixes": [paths]}
     GET    /storage/v1/object/{bucket}/{path}         authenticated download
     GET    /storage/v1/object/public/{bucket}/{path}  refused: the bucket is private
+    GET    /storage/v1/bucket/{bucket}                bucket info, with its "public" flag
+    GET    /storage/v1/object/sign/{bucket}/{path}?token=...   the signed URL itself: no
+                                                      Authorization header, valid until it expires
+
+Time comes from `now` (default: the real clock), so a test can move it forward instead of
+waiting for a signed URL to expire.
 
 Like the real API it reports a missing object as HTTP 400 with {"statusCode": "404"}, which
 is why the backend treats that as "not found" too.
 """
 import json
+import time
 from email import message_from_bytes
 from email.policy import default as email_policy
 from typing import NamedTuple
@@ -33,12 +40,15 @@ class Call(NamedTuple):
 
 
 class FakeSupabase:
-    def __init__(self, bucket: str = BUCKET, service_key: str = SERVICE_KEY):
+    def __init__(self, bucket: str = BUCKET, service_key: str = SERVICE_KEY, now=time.time):
         self.bucket = bucket
         self.service_key = service_key
+        self.now = now
+        self.public = False                          # the bucket's public flag
         self.objects: dict[str, bytes] = {}
         self.calls: list[Call] = []
         self.signed: list[tuple[str, int]] = []
+        self._tokens: dict[str, tuple[str, float]] = {}      # token -> (key, expires_at)
         self.fail_with: int | None = None            # make every request answer this status
         self.transport = httpx.MockTransport(self._handle)
 
@@ -64,6 +74,19 @@ class FakeSupabase:
                 }
         raise AssertionError("no file part in the upload")
 
+    def _download_signed(self, request: httpx.Request, path: str) -> httpx.Response:
+        self.calls.append(Call("GET", path, {k.lower(): v for k, v in request.headers.items()}, None))
+        bucket, key = path[len("/storage/v1/object/sign/"):].split("/", 1)
+        token = request.url.params.get("token")
+        entry = self._tokens.get(token or "")
+        if entry is None or entry[0] != key or bucket != self.bucket:
+            return self._json(400, {"statusCode": "400", "error": "InvalidJWT", "message": "Invalid token"})
+        if self.now() >= entry[1]:
+            return self._json(400, {"statusCode": "400", "error": "InvalidJWT", "message": "exp claim timestamp check failed"})
+        if key not in self.objects:
+            return self._not_found()
+        return httpx.Response(200, content=self.objects[key])
+
     # ── the API ───────────────────────────────────────────────────────────────
 
     def _handle(self, request: httpx.Request) -> httpx.Response:
@@ -76,16 +99,25 @@ class FakeSupabase:
             body = self._file_part(request)
         self.calls.append(Call(request.method, path, headers, body))
 
+        if request.method == "GET" and path.startswith("/storage/v1/object/sign/"):
+            return self._download_signed(request, path)
+
         if self.fail_with is not None:
             return self._json(self.fail_with, {"statusCode": str(self.fail_with), "error": "boom", "message": "Internal"})
         if headers.get("authorization") != f"Bearer {self.service_key}":
             return self._json(401, {"statusCode": "401", "error": "Unauthorized", "message": "Invalid token"})
+
+        if request.method == "GET" and path == f"/storage/v1/bucket/{self.bucket}":
+            return self._json(200, {"id": self.bucket, "name": self.bucket, "public": self.public})
 
         prefix = "/storage/v1/object/"
         assert path.startswith(prefix), path
         rest = path[len(prefix):]
 
         if rest.startswith("public/"):                   # a private bucket has no public URLs
+            _, bucket, key = rest.split("/", 2)
+            if self.public and bucket == self.bucket and key in self.objects:
+                return httpx.Response(200, content=self.objects[key])
             return self._not_found()
 
         if request.method == "POST" and rest.startswith("sign/"):
@@ -93,7 +125,9 @@ class FakeSupabase:
             if bucket != self.bucket or key not in self.objects:
                 return self._not_found()
             self.signed.append((key, int(body["expiresIn"])))
-            return self._json(200, {"signedURL": f"/object/sign/{bucket}/{key}?token=tok-{len(self.signed)}"})
+            token = f"tok-{len(self.signed)}"
+            self._tokens[token] = (key, self.now() + int(body["expiresIn"]))
+            return self._json(200, {"signedURL": f"/object/sign/{bucket}/{key}?token={token}"})
 
         if request.method == "DELETE":
             for key in body["prefixes"]:

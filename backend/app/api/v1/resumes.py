@@ -219,7 +219,7 @@ def analyze_resume(resume_id: str):
 
     KEY CHANGE: When force_reparse=True, bytes are fetched from
     storage_service.download_bytes(resume.storage_key). This works
-    identically for local (reads file) and Cloudinary (signed URL).
+    identically for local (reads file) and Supabase (signed URL).
     No os.path / local file assumptions remain.
     """
     data, err = parse_body(AnalyzeResumeSchema)

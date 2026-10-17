@@ -135,19 +135,19 @@ def test_an_unknown_resume_is_404(client, db, candidate_a, headers_for):
     assert client.get(f"{BASE}/no-such/download", headers=headers_for(candidate_a)).status_code == 404
 
 
-# ─── Cloudinary: a signed URL that expires in 5 minutes ───────────────────────
+# ─── a backend with signed URLs: the URL expires in 5 minutes ─────────────────
 
 @pytest.fixture()
-def cloudinary_storage(app, monkeypatch):
-    fake = MagicMock(provider="cloudinary")
+def signed_storage(app, monkeypatch):
+    fake = MagicMock(provider="supabase")
     fake.signed_url.return_value = "https://signed.example/download?sig=1"
-    monkeypatch.setitem(app.config, "STORAGE_PROVIDER", "cloudinary")
+    monkeypatch.setitem(app.config, "STORAGE_PROVIDER", "supabase")
     with patch.object(StorageService, "from_config", return_value=fake):
         yield fake
 
 
-def test_cloudinary_resume_returns_a_signed_url_that_expires_in_300_seconds(
-    check_access, db, resume_a, cloudinary_storage, candidate_a, candidate_b
+def test_a_signed_url_backend_returns_a_signed_url_that_expires_in_300_seconds(
+    check_access, db, resume_a, signed_storage, candidate_a, candidate_b
 ):
     resume_a.storage_key = "resumes/abc.pdf"
     db.session.commit()
@@ -155,24 +155,24 @@ def test_cloudinary_resume_returns_a_signed_url_that_expires_in_300_seconds(
     r = check_access("GET", f"{BASE}/{resume_a.id}/download", owner=candidate_a, other=candidate_b)
 
     assert r.get_json()["data"] == {"url": "https://signed.example/download?sig=1", "expires_in": 300}
-    cloudinary_storage.signed_url.assert_called_once_with("resumes/abc.pdf", ttl=300)
+    signed_storage.signed_url.assert_called_once_with("resumes/abc.pdf", ttl=300)
 
 
-def test_the_ttl_comes_from_config(app, client, db, resume_a, cloudinary_storage, candidate_a, headers_for, monkeypatch):
+def test_the_ttl_comes_from_config(app, client, db, resume_a, signed_storage, candidate_a, headers_for, monkeypatch):
     monkeypatch.setitem(app.config, "DOWNLOAD_URL_TTL_SECONDS", 60)
     resume_a.storage_key = "resumes/abc.pdf"
     db.session.commit()
     r = client.get(f"{BASE}/{resume_a.id}/download", headers=headers_for(candidate_a))
     assert r.get_json()["data"]["expires_in"] == 60
-    cloudinary_storage.signed_url.assert_called_once_with("resumes/abc.pdf", ttl=60)
+    signed_storage.signed_url.assert_called_once_with("resumes/abc.pdf", ttl=60)
 
 
 def test_a_signing_failure_is_a_502_without_internals(
-    client, db, resume_a, cloudinary_storage, candidate_a, headers_for
+    client, db, resume_a, signed_storage, candidate_a, headers_for
 ):
     resume_a.storage_key = "resumes/abc.pdf"
     db.session.commit()
-    cloudinary_storage.signed_url.side_effect = StorageError("api_secret=hunter2 rejected")
+    signed_storage.signed_url.side_effect = StorageError("api_secret=hunter2 rejected")
     r = client.get(f"{BASE}/{resume_a.id}/download", headers=headers_for(candidate_a))
     assert r.status_code == 502
     assert "hunter2" not in r.get_data(as_text=True)

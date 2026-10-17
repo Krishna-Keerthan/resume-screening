@@ -29,7 +29,6 @@ Usage (in upload_resume route):
 
 import logging
 import re
-import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -100,25 +99,6 @@ class StorageService:
 
 def _build_local(cfg: Callable) -> "LocalStorageBackend":
     return LocalStorageBackend(upload_dir=cfg("UPLOAD_FOLDER", "/tmp/uploads"))
-
-
-def _build_cloudinary(cfg: Callable) -> "CloudinaryStorageBackend":
-    values = {
-        "CLOUDINARY_CLOUD_NAME": cfg("CLOUDINARY_CLOUD_NAME", ""),
-        "CLOUDINARY_API_KEY":    cfg("CLOUDINARY_API_KEY", ""),
-        "CLOUDINARY_API_SECRET": cfg("CLOUDINARY_API_SECRET", ""),
-    }
-    missing = [name for name, value in values.items() if not value]
-    if missing:
-        raise StorageError(
-            "STORAGE_PROVIDER=cloudinary but these settings are empty: " + ", ".join(missing)
-        )
-    return CloudinaryStorageBackend(
-        cloud_name=values["CLOUDINARY_CLOUD_NAME"],
-        api_key=values["CLOUDINARY_API_KEY"],
-        api_secret=values["CLOUDINARY_API_SECRET"],
-        folder=cfg("CLOUDINARY_FOLDER", "resumes"),
-    )
 
 
 def _build_supabase(cfg: Callable) -> "SupabaseStorageBackend":
@@ -213,113 +193,6 @@ class LocalStorageBackend:
     def signed_url(self, key: str, ttl: int) -> None:
         """Local files have no URL: the download route streams them after its checks."""
         return None
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Cloudinary backend
-# ─────────────────────────────────────────────────────────────────────────────
-
-class CloudinaryStorageBackend:
-    """
-    Cloudinary storage backend.
-
-    Files are uploaded as resource_type="raw", type="authenticated": they
-    have no public URL, and every download goes through a signed, expiring
-    URL. The key is the Cloudinary public_id, which includes the extension.
-    """
-
-    provider = "cloudinary"
-
-    def __init__(self, cloud_name: str, api_key: str, api_secret: str, folder: str = "resumes"):
-        self._folder = folder
-        self._configure(cloud_name, api_key, api_secret)
-
-    def _configure(self, cloud_name: str, api_key: str, api_secret: str) -> None:
-        try:
-            import cloudinary
-            cloudinary.config(
-                cloud_name=cloud_name,
-                api_key=api_key,
-                api_secret=api_secret,
-                secure=True,
-            )
-        except ImportError as exc:
-            raise StorageError(
-                "cloudinary package is not installed. Run: pip install cloudinary"
-            ) from exc
-
-    def upload(self, file_bytes: bytes, ext: str) -> StorageResult:
-        """Upload bytes as an authenticated raw file under a random public_id."""
-        try:
-            import cloudinary.uploader
-        except ImportError as exc:
-            raise StorageError("cloudinary package is not installed.") from exc
-
-        public_id = _random_key(ext)
-        try:
-            response = cloudinary.uploader.upload(
-                file_bytes,
-                resource_type="raw",
-                type="authenticated",
-                folder=self._folder,
-                public_id=public_id,
-                use_filename=False,
-                unique_filename=False,
-                overwrite=False,
-                tags=["resume"],
-            )
-        except Exception as exc:
-            logger.error("Cloudinary upload failed", exc_info=True)
-            raise StorageError(f"Cloudinary upload failed: {exc}") from exc
-
-        key = response.get("public_id") or f"{self._folder}/{public_id}"
-        size_kb = max(1, round(response.get("bytes", len(file_bytes)) / 1024))
-        logger.info("Cloudinary upload complete", extra={"key": key, "size_kb": size_kb})
-        return StorageResult(key=key, size_kb=size_kb, provider="cloudinary")
-
-    def delete(self, key: str) -> None:
-        """Delete an authenticated raw file; best-effort, failures are logged."""
-        if not key:
-            return
-        try:
-            import cloudinary.uploader
-            result = cloudinary.uploader.destroy(key, resource_type="raw", type="authenticated")
-            if result.get("result") not in ("ok", "not found"):
-                logger.warning(
-                    "Cloudinary delete returned unexpected result",
-                    extra={"key": key, "result": result},
-                )
-            else:
-                logger.info("Cloudinary file deleted", extra={"key": key})
-        except Exception as exc:
-            logger.warning("Failed to delete Cloudinary file %s: %s", key, exc)
-
-    def signed_url(self, key: str, ttl: int) -> str:
-        """A download URL for key that Cloudinary stops honouring after ttl seconds."""
-        try:
-            import cloudinary.utils
-            return cloudinary.utils.private_download_url(
-                key,
-                "",
-                resource_type="raw",
-                type="authenticated",
-                expires_at=int(time.time()) + ttl,
-            )
-        except Exception as exc:
-            raise StorageError(f"Failed to sign a download URL: {exc}") from exc
-
-    def download_bytes(self, key: str) -> bytes:
-        """Fetch the file through a short-lived signed URL."""
-        url = self.signed_url(key, ttl=60)
-        try:
-            import urllib.request
-            with urllib.request.urlopen(url, timeout=30) as resp:
-                data = resp.read()
-        except Exception as exc:
-            raise StorageError(f"Failed to download stored file '{key}': {exc}") from exc
-        if not data:
-            raise StorageError(f"Downloaded 0 bytes for '{key}'.")
-        return data
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -446,6 +319,5 @@ def _error_message(response) -> str:
 
 _BUILDERS: dict[str, Callable[[Callable], StorageBackend]] = {
     "local":      _build_local,
-    "cloudinary": _build_cloudinary,
     "supabase":   _build_supabase,
 }

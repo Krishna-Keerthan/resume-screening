@@ -84,10 +84,10 @@ def test_storage_settings_reach_flask_config():
 
     env = {
         **os.environ,
-        "STORAGE_PROVIDER":      "cloudinary",
-        "CLOUDINARY_CLOUD_NAME": "demo-cloud",
-        "CLOUDINARY_API_KEY":    "key-123",
-        "CLOUDINARY_API_SECRET": "secret-456",
+        "STORAGE_PROVIDER":          "supabase",
+        "SUPABASE_URL":              "https://demo.supabase.co",
+        "SUPABASE_SERVICE_ROLE_KEY": "key-123",
+        "SUPABASE_BUCKET":           "resumes",
     }
     script = (
         "import json\n"
@@ -95,8 +95,8 @@ def test_storage_settings_reach_flask_config():
         "from config import get_config\n"
         "app = Flask('probe')\n"
         "app.config.from_object(get_config('development'))\n"
-        "keys = ['STORAGE_PROVIDER', 'CLOUDINARY_CLOUD_NAME',\n"
-        "        'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET']\n"
+        "keys = ['STORAGE_PROVIDER', 'SUPABASE_URL',\n"
+        "        'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_BUCKET']\n"
         "print(json.dumps({k: app.config.get(k) for k in keys}))\n"
     )
     out = subprocess.run(
@@ -104,10 +104,10 @@ def test_storage_settings_reach_flask_config():
         check=True, cwd=os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
     )
     assert json.loads(out.stdout.strip().splitlines()[-1]) == {
-        "STORAGE_PROVIDER":      "cloudinary",
-        "CLOUDINARY_CLOUD_NAME": "demo-cloud",
-        "CLOUDINARY_API_KEY":    "key-123",
-        "CLOUDINARY_API_SECRET": "secret-456",
+        "STORAGE_PROVIDER":          "supabase",
+        "SUPABASE_URL":              "https://demo.supabase.co",
+        "SUPABASE_SERVICE_ROLE_KEY": "key-123",
+        "SUPABASE_BUCKET":           "resumes",
     }
 
 

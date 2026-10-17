@@ -183,7 +183,7 @@ class ResumeRepository(BaseRepository[Resume]):
         Soft-delete a Resume record.
 
         If storage_service is provided, the underlying file is deleted from
-        storage (Cloudinary or local) before the DB record is marked deleted.
+        storage (Supabase or local) before the DB record is marked deleted.
         File deletion is best-effort — a storage failure does NOT abort the
         DB soft-delete.
 

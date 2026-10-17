@@ -10,7 +10,7 @@ Routes (all need a token):
   GET    /candidates/<id>/skill-gaps      — self
   GET    /candidates/<id>/win-rate-insights — self
 
-Uploads go through StorageService (Cloudinary or local disk); the file bytes
+Uploads go through StorageService (Supabase Storage or local disk); the file bytes
 are read once and used for both storage and parsing.
 """
 
@@ -221,7 +221,7 @@ def upload_resume(candidate_id: str):
       1. validate_upload() — extension + MIME + size checks, then
          validate_content() — the bytes match the extension (file_helpers)
       2. Read file into memory (bytes) — single read, used for both storage + parse
-      3. StorageService.upload(bytes) — Cloudinary (prod) or local disk (dev)
+      3. StorageService.upload(bytes) — Supabase Storage (prod) or local disk (dev)
       4. Create Resume record with the storage key
       5. ResumeParserService.parse_bytes(bytes) — no disk I/O on Render
       6. Apply parse results → save → deactivate older resumes
@@ -274,7 +274,7 @@ def upload_resume(candidate_id: str):
 
     original_filename = file.filename  # keep before stream is closed
 
-    # ── 5. Upload to storage (Cloudinary prod / local dev) ────────────────────
+    # ── 5. Upload to storage (Supabase prod / local dev) ──────────────────────
     from app.services.storage_service import StorageService, StorageError
     storage = StorageService.from_config(current_app.config)
 

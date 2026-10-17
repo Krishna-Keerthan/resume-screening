@@ -41,6 +41,3 @@ groq==1.0.0
 # HTTP client: Groq's SDK already installs it; the Supabase Storage backend (STORAGE_PROVIDER=supabase)
 # calls the Storage REST API with it directly. Same version the lock already held.
 httpx==0.28.1
-
-# File storage (STORAGE_PROVIDER=cloudinary)
-cloudinary==1.46.3

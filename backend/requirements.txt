@@ -17,7 +17,6 @@ blinker==1.9.0
     # via flask
 certifi==2026.2.25
     # via
-    #   cloudinary
     #   httpcore
     #   httpx
     #   requests
@@ -29,8 +28,6 @@ charset-normalizer==3.4.4
     #   requests
 click==8.3.1
     # via flask
-cloudinary==1.46.3
-    # via -r requirements.in
 cryptography==44.0.0
     # via pdfminer-six
 deprecated==1.3.1
@@ -176,8 +173,6 @@ scipy==1.15.3
     #   sentence-transformers
 sentence-transformers==5.3.0
     # via -r requirements.in
-six==1.17.0
-    # via cloudinary
 sniffio==1.3.1
     # via groq
 sqlalchemy==2.0.31
@@ -220,9 +215,7 @@ typing-extensions==4.15.0
 typing-inspection==0.4.2
     # via pydantic
 urllib3==2.6.3
-    # via
-    #   cloudinary
-    #   requests
+    # via requests
 werkzeug==3.0.3
     # via
     #   -r requirements.in

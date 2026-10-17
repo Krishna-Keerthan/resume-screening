@@ -37,7 +37,7 @@ browser --https--> Vercel (app domain) --rewrite /api/v1/*--> Render (Flask)
 | `TRUSTED_PROXY_HOPS` | `2` (set in `render.yaml`; verify as described below) |
 | `LOG_PROXY_CHAIN` | `true` for the first deploy only (set in `render.yaml`) |
 | `REFRESH_COOKIE_SECURE` | nothing to set: defaults to `true` in production |
-| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | from your Cloudinary dashboard (`sync: false`: Render asks for them). `STORAGE_PROVIDER=cloudinary` is set in `render.yaml`. If any of the three is empty the app refuses to start, so a bad deploy fails loudly instead of writing résumés to Render's disk, which is wiped on every deploy. |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_BUCKET` | from your Supabase project (`sync: false`: Render asks for them). `STORAGE_PROVIDER=supabase` is set in `render.yaml`. If any of the three is empty the app refuses to start, so a bad deploy fails loudly instead of writing résumés to Render's disk, which is wiped on every deploy. |
 
 Always use the Vercel domain. Logging in on the `*.onrender.com` address directly
 would store the cookie on a different host.
@@ -176,7 +176,7 @@ with the instance limit; RSS counts shared pages in every process.
 
 - Preload saves about 210 MB with two workers but does not help with one.
 - Two workers do **not** fit in 512 MB once warm, with or without preload. One worker
-  fits with little room (470 to 500 MB before Postgres drivers, Cloudinary and real
+  fits with little room (470 to 500 MB before Postgres drivers and real
   traffic). This was not measured on Render itself.
 - **Production therefore runs one worker** (`WORKERS` defaults to 1 there, and
   `render.yaml` does not set it). Raise it only on an instance with more memory.
@@ -223,7 +223,8 @@ higher than the memory it adds. Compare the master's plus the worker's growth wi
 
 ## First deploy, step by step
 
-1. **Accounts and secrets:** Cloudinary cloud name, API key and secret; a Groq API key
+1. **Accounts and secrets:** a Supabase project with a private bucket (its URL, service-role key and
+   bucket name); a Groq API key
    (optional, LLM features are off without it).
 2. **The blueprint is `render.yaml` in the repository root** (where Render looks by
    default). The web service uses `runtime: python` with `rootDir: backend`, so its
@@ -232,12 +233,12 @@ higher than the memory it adds. Compare the master's plus the worker's growth wi
    https://render.com/docs/blueprint-spec. The file was also checked against
    https://render.com/schema/render.yaml.json (see the commit message for how).
 3. **Create the Render blueprint** (web service, `ats-postgres`, `ats-ratelimit`
-   Key Value). Fill the `sync: false` values: `CLOUDINARY_CLOUD_NAME`,
-   `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `GROQ_API_KEY`. Leave
+   Key Value). Fill the `sync: false` values: `SUPABASE_URL`,
+   `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_BUCKET`, `GROQ_API_KEY`. Leave
    `ALLOWED_ORIGINS` as a placeholder for now. Keep one instance.
 4. **Let the first deploy run.** The log shows `alembic upgrade head` running 0001,
-   0002 and 0003, then gunicorn loading the model and starting. If the Cloudinary
-   values are incomplete, the app refuses to start and says which one is missing.
+   0002 and 0003, then gunicorn loading the model and starting. If a Supabase
+   value is missing, the app refuses to start and says which one is missing.
 5. **Check the backend directly:** `GET https://<service>.onrender.com/api/v1/health`
    returns 200. Do not log in here.
 6. **Create the Vercel project** from `frontend/`, set `API_PROXY_TARGET` to the
@@ -248,4 +249,4 @@ higher than the memory it adds. Compare the master's plus the worker's growth wi
    reload a protected page.
 9. **Verify the proxy hop count** (section above), then turn `LOG_PROXY_CHAIN` off.
 10. **Test the proxy limits** (upload sizes, first request after idle), and run
-    `docs/cloudinary-smoke-test.md` with real credentials.
+    `docs/supabase-smoke-test.md` with real credentials.

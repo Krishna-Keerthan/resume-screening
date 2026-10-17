@@ -5,7 +5,7 @@ Tables: Alembic builds them in production, create_app() everywhere else. In prod
 the app also called db.create_all(), whichever ran first on an empty database
 would win and the other would fail or skip, leaving the schema unmanaged.
 
-Storage: an incomplete Cloudinary setup must stop production from starting
+Storage: an incomplete Supabase setup must stop production from starting
 rather than let uploads go somewhere else.
 
 Each case boots the app in a fresh interpreter: create_app() re-initialises the
@@ -88,30 +88,6 @@ def test_development_startup_still_creates_the_tables(tmp_path):
 
 
 # ─── File storage ─────────────────────────────────────────────────────────────
-
-_CLOUDINARY = {
-    "STORAGE_PROVIDER": "cloudinary",
-    "CLOUDINARY_CLOUD_NAME": "demo-cloud",
-    "CLOUDINARY_API_KEY": "key-123",
-    "CLOUDINARY_API_SECRET": "secret-456",
-}
-
-
-@pytest.mark.parametrize("missing", ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"])
-def test_production_refuses_to_start_with_an_incomplete_cloudinary_setup(tmp_path, missing):
-    out = _run("production", tmp_path / "prod.db", {**_CLOUDINARY, missing: ""})
-
-    assert out.returncode != 0
-    assert "StorageError" in out.stderr
-    assert missing in out.stderr
-    assert "secret-456" not in out.stderr
-
-
-def test_production_starts_with_a_complete_cloudinary_setup(tmp_path):
-    out = _run("production", tmp_path / "prod.db", _CLOUDINARY)
-
-    assert out.returncode == 0, out.stderr
-
 
 _SUPABASE = {
     "STORAGE_PROVIDER": "supabase",
