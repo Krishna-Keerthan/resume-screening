@@ -67,7 +67,8 @@ components/
 
 | Variable | Default | Description |
 |---|---|---|
-| `NEXT_PUBLIC_API_URL` | `http://localhost:5000` | Flask backend base URL |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:5000` | Flask backend origin as the browser reaches it, **without** `/api/v1` (the client adds it once) |
+| `INTERNAL_API_URL` | `http://ats_flask:5000` | Same, as the Next.js server reaches it (server-side rendering); falls back to `NEXT_PUBLIC_API_URL` |
 | `NEXT_PUBLIC_AUTH_STORAGE_KEY` | `ats-auth-v1` | localStorage key for auth |
 
 ## Auth Flow

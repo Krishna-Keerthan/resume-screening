@@ -66,8 +66,8 @@ services:
     env_file:
       - ./frontend/.env.local
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:5000/api/v1
-      INTERNAL_API_URL: http://ats_flask:5000/api/v1
+      NEXT_PUBLIC_API_URL: http://localhost:5000
+      INTERNAL_API_URL: http://ats_flask:5000
     depends_on:
       - flask
     volumes:
@@ -88,7 +88,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:5000/api/v1
+        NEXT_PUBLIC_API_URL: http://localhost:5000
     container_name: ats_nextjs_prod
     restart: unless-stopped
     networks:
@@ -97,7 +97,7 @@ services:
       - "3001:3000"
     environment:
       NODE_ENV: production
-      INTERNAL_API_URL: http://ats_flask:5000/api/v1
+      INTERNAL_API_URL: http://ats_flask:5000
     depends_on:
       - flask
     profiles:
