@@ -102,3 +102,22 @@ rather than assume. Render's free tier can need 30 to 60 s to wake from idle.
   `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`.
 - Upload a résumé, redeploy the backend, the file is still downloadable (item 6, not yet done).
 - No tokens or cookies in the Render logs.
+
+## Database migrations on deploy
+
+The Render start command is `alembic upgrade head && gunicorn ...`: it runs once
+per deploy, before the app starts. Production never calls `db.create_all()`
+(`CREATE_TABLES_ON_STARTUP` is false there; development and tests keep it).
+
+- **First deploy, empty database:** `upgrade head` runs 0001, 0002, 0003, creates
+  every table and `alembic_version` (at `0003`), then gunicorn starts. Nothing else
+  to do. Checked locally against an empty Postgres 16 with `APP_ENV=production`.
+- **Later deploys:** nothing to apply means no change; a new migration is applied
+  before the new code serves traffic.
+- **A migration fails:** gunicorn does not start and Render keeps the previous
+  version running. Read the deploy log, fix, redeploy.
+- **Do not** run `alembic stamp` on production, and do not scale beyond one
+  instance on the first deploy (every instance runs the command and they would
+  race creating the tables).
+- Alembic builds the production config, so `SECRET_KEY`, `DATABASE_URL` and
+  `RATE_LIMIT_STORAGE_URL` (Redis) must exist in the environment.

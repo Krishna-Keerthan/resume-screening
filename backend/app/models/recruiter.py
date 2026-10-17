@@ -15,7 +15,7 @@ Relationships:
 
 from typing import Any
 
-from sqlalchemy import Boolean, Index, func, Integer, String, Text
+from sqlalchemy import Boolean, Index, false, func, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import BaseModel
@@ -29,6 +29,11 @@ class Recruiter(SoftDeleteMixin, BaseModel):
     """
 
     __tablename__ = "recruiters"
+
+    # Same column as the mixin's, plus the server default migration 0002 gave it.
+    is_deleted: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False, index=True,
+    )
 
     # ── Identity ──────────────────────────────────────────────────────────────
     full_name:    Mapped[str]        = mapped_column(String(200), nullable=False)

@@ -7,7 +7,7 @@ services:
     name: ats-backend
     runtime: python
     buildCommand: pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
-    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    startCommand: alembic upgrade head && gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.17   # same as python:3.11-slim in Dockerfile; torch 2.3.0 has no 3.13 wheels

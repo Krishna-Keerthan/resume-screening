@@ -141,10 +141,10 @@ class BaseModel(db.Model):  # type: ignore[name-defined]
 
 def init_db(app: Flask) -> None:
     """
-    Bind SQLAlchemy to the Flask app and create tables if they don't exist.
+    Bind SQLAlchemy to the Flask app and, when CREATE_TABLES_ON_STARTUP is set
+    (development and tests), create the tables that don't exist yet.
 
-    Called from create_app() after all models have been imported.
-    In production, use Alembic migrations instead of create_all().
+    Production leaves it off: Alembic builds and upgrades its schema.
 
     Args:
         app: The configured Flask application instance.
@@ -155,7 +155,8 @@ def init_db(app: Flask) -> None:
         # Import all models here to ensure they are registered with SQLAlchemy
         # before create_all() is called.
         _import_models()
-        db.create_all()
+        if app.config["CREATE_TABLES_ON_STARTUP"]:
+            db.create_all()
 
     app.logger.info("Database initialised.")
 

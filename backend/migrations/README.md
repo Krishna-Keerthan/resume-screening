@@ -28,12 +28,20 @@ Production starts from an **empty database** and is built only by migrations:
 alembic upgrade head
 ```
 
-Run it **before the app first starts** against that database. The app still
-calls `db.create_all()` at startup (`app/core/database.py:init_db`); if that runs
-first on an empty database it creates the tables without an `alembic_version`
-row, and `alembic upgrade head` then fails with "table already exists". Once
-the database is at head, `create_all()` is a no-op. Removing `create_all()` from
-production startup is tracked for Phase 3.
+The start command in `render.yaml` and the `Procfile` runs it on every deploy,
+before gunicorn: `alembic upgrade head && gunicorn ...`. If a migration fails,
+gunicorn never starts and the deploy fails, so the previous version keeps
+serving. Production never calls `db.create_all()` (`CREATE_TABLES_ON_STARTUP`
+is false there); development and tests still do.
+
+On the first deploy the database is empty, so `upgrade head` runs 0001, 0002
+and 0003 in order and creates `alembic_version` at `0003`. Later deploys with
+nothing new do nothing. It needs `SECRET_KEY`, `DATABASE_URL` and a shared
+`RATE_LIMIT_STORAGE_URL` in the environment, because Alembic builds the
+production config the same way the app does.
+
+Run one instance per deploy: if the service is scaled to several instances,
+each one runs the command and they would race on the first deploy.
 
 Do not `alembic stamp` production: there is no pre-existing data to preserve.
 

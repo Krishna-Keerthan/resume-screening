@@ -76,6 +76,9 @@ class BaseConfig:
     REFRESH_COOKIE_SECURE: bool = _bool_env("REFRESH_COOKIE_SECURE", False)
 
     # ── Database ──────────────────────────────────────────────────────────────
+    # create_app() creates missing tables. Production turns this off: its schema
+    # is built by `alembic upgrade head` in the start command.
+    CREATE_TABLES_ON_STARTUP: bool = True
     SQLALCHEMY_TRACK_MODIFICATIONS: bool = False
     SQLALCHEMY_ECHO:                bool = False
 
@@ -177,6 +180,7 @@ class ProductionConfig(BaseConfig):
     TESTING:    bool = False
     LOG_LEVEL:  str  = "WARNING"
     LOG_FORMAT: str  = "json"
+    CREATE_TABLES_ON_STARTUP: bool = False
     # Vercel's proxy, then Render's. Confirm with LOG_PROXY_CHAIN after a deploy.
     TRUSTED_PROXY_HOPS:    int  = _int_env("TRUSTED_PROXY_HOPS", 2)
     REFRESH_COOKIE_SECURE: bool = _bool_env("REFRESH_COOKIE_SECURE", True)
