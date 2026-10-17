@@ -71,7 +71,9 @@ hf-xet==1.7.0
 httpcore==1.0.9
     # via httpx
 httpx==0.28.1
-    # via groq
+    # via
+    #   -r requirements.in
+    #   groq
 huggingface-hub==0.36.2
     # via
     #   sentence-transformers
