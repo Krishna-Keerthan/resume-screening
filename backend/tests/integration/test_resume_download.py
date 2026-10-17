@@ -232,3 +232,83 @@ def test_analyze_force_refresh_without_a_storage_key_is_422(
     assert r.status_code == 422
     assert r.get_json()["error"]["error_code"] == "NO_STORAGE_KEY"
     fake_storage.download_bytes.assert_not_called()
+
+
+# ─── any backend that has a signed URL is served the same way ─────────────────
+
+class _FakeUrlBackend:
+    """A provider the download route has never heard of."""
+    provider = "made-up"
+
+    def __init__(self):
+        self.signed = []
+
+    def signed_url(self, key, ttl):
+        self.signed.append((key, ttl))
+        return "https://signed.example/object?token=t"
+
+    def download_bytes(self, key):
+        raise AssertionError("a backend with a signed URL is not streamed through the app")
+
+
+def _register(app, monkeypatch, backend):
+    from app.services import storage_service
+
+    monkeypatch.setitem(app.config, "STORAGE_PROVIDER", "made-up")
+    monkeypatch.setitem(storage_service._BUILDERS, "made-up", lambda cfg: backend)
+
+
+def test_the_route_serves_a_signed_url_for_any_provider_without_naming_it(
+    app, check_access, db, resume_a, candidate_a, candidate_b, monkeypatch
+):
+    backend = _FakeUrlBackend()
+    _register(app, monkeypatch, backend)
+    resume_a.storage_key = "abc.pdf"
+    db.session.commit()
+
+    r = check_access("GET", f"{BASE}/{resume_a.id}/download", owner=candidate_a, other=candidate_b)
+
+    assert r.get_json()["data"] == {"url": "https://signed.example/object?token=t", "expires_in": 300}
+    assert backend.signed == [("abc.pdf", 300)]
+
+
+def test_a_file_the_store_does_not_have_is_404_for_any_provider(
+    app, client, db, resume_a, candidate_a, headers_for, monkeypatch
+):
+    from app.services.storage_service import StorageNotFound
+
+    class _Missing:
+        provider = "made-up"
+        signed_url = staticmethod(lambda key, ttl: None)
+
+        @staticmethod
+        def download_bytes(key):
+            raise StorageNotFound("gone")
+
+    _register(app, monkeypatch, _Missing())
+    resume_a.storage_key = "abc.pdf"
+    db.session.commit()
+
+    r = client.get(f"{BASE}/{resume_a.id}/download", headers=headers_for(candidate_a))
+
+    assert (r.status_code, r.get_json()["error"]["error_code"]) == (404, "FILE_NOT_FOUND")
+
+
+def test_any_other_store_failure_is_502_for_any_provider(
+    app, client, db, resume_a, candidate_a, headers_for, monkeypatch
+):
+    class _Broken:
+        provider = "made-up"
+        signed_url = staticmethod(lambda key, ttl: None)
+
+        @staticmethod
+        def download_bytes(key):
+            raise StorageError("connection reset")
+
+    _register(app, monkeypatch, _Broken())
+    resume_a.storage_key = "abc.pdf"
+    db.session.commit()
+
+    r = client.get(f"{BASE}/{resume_a.id}/download", headers=headers_for(candidate_a))
+
+    assert (r.status_code, r.get_json()["error"]["error_code"]) == (502, "STORAGE_UNAVAILABLE")

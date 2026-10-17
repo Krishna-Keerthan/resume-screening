@@ -121,7 +121,7 @@ def test_local_delete_removes_the_file_and_ignores_a_missing_one(local):
 
 
 def test_local_backend_has_no_public_url(local):
-    assert not hasattr(local, "signed_url")
+    assert local.signed_url(local.upload(b"x", "pdf").key, ttl=300) is None
 
 
 @pytest.fixture()

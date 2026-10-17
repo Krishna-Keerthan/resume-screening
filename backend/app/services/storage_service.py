@@ -1,30 +1,30 @@
 """
 app/services/storage_service.py
 
-Abstracted file storage backend for resume files.
+File storage for resume files, behind one interface.
 
-Interface (both backends):
+Interface (StorageBackend, every backend):
+    provider                 -> its name, for logging and the upload response only
     upload(file_bytes, ext)  -> StorageResult      stored under a random key
-    delete(key)              -> None
-    download_bytes(key)      -> bytes
+    download_bytes(key)      -> bytes              StorageNotFound if there is no such object
+    delete(key)              -> None               never raises
+    signed_url(key, ttl)     -> str | None         a download URL that stops working after
+                                                   ttl seconds, or None when the backend has
+                                                   no direct URL (the route then serves the
+                                                   bytes itself, after its ownership check)
 
-Cloudinary only:
-    signed_url(key, ttl)     -> short-lived download URL
+A storage key is generated here from a random UUID and the validated extension. The
+user's filename never reaches storage. Files are private in every backend: they have no
+public URL, and the local backend's files are never served statically.
 
-A storage key is generated here from a random UUID and the validated
-extension. The user's filename never reaches storage. Files are private in
-both backends: Cloudinary uploads use type="authenticated", and the local
-backend's files are never served statically (the download route streams
-them after an ownership check).
-
-Backend is selected via STORAGE_PROVIDER config:
-    local      — writes to UPLOAD_FOLDER on disk (dev / testing)
-    cloudinary — uploads to Cloudinary as authenticated raw files (prod)
+The backend is chosen by STORAGE_PROVIDER, in exactly one place: StorageService.from_config
+looks the name up in _BUILDERS. Nothing else in the application branches on the provider.
+To add a backend, write the class and add one builder to _BUILDERS.
 
 Usage (in upload_resume route):
     storage = StorageService.from_config(current_app.config)
     result  = storage.upload(file_bytes, ext)
-    # result.key → stored in Resume.storage_key (the source of truth)
+    # result.key -> stored in Resume.storage_key (the source of truth)
 """
 
 import logging
@@ -33,6 +33,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -40,13 +41,26 @@ logger = logging.getLogger(__name__)
 @dataclass
 class StorageResult:
     """Unified result returned by any storage backend's upload()."""
-    key:      str   # Cloudinary public_id, or a path relative to UPLOAD_FOLDER
+    key:      str   # the object's key in the store (a path relative to UPLOAD_FOLDER, locally)
     size_kb:  int   # File size rounded to nearest KB (minimum 1)
-    provider: str   # "cloudinary" | "local"
+    provider: str   # the backend's name, e.g. "local"
 
 
 class StorageError(Exception):
     """Raised when any storage operation fails."""
+
+
+class StorageNotFound(StorageError):
+    """The store has no object under the key (as opposed to the store being unreachable)."""
+
+
+class StorageBackend(Protocol):
+    provider: str
+
+    def upload(self, file_bytes: bytes, ext: str) -> StorageResult: ...
+    def download_bytes(self, key: str) -> bytes: ...
+    def delete(self, key: str) -> None: ...
+    def signed_url(self, key: str, ttl: int) -> str | None: ...
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -55,59 +69,53 @@ class StorageError(Exception):
 
 class StorageService:
     """
-    Factory + public interface.
-
-    Do not instantiate directly — use StorageService.from_config(app.config).
+    Factory. Do not instantiate directly: use StorageService.from_config(app.config).
     """
 
     @staticmethod
-    def from_config(config) -> "LocalStorageBackend | CloudinaryStorageBackend":
+    def from_config(config) -> StorageBackend:
         """
-        Instantiate the correct backend from Flask config.
+        Build the backend named by STORAGE_PROVIDER (default "local").
 
-        Args:
-            config: Flask config dict or object.
-
-        Returns:
-            LocalStorageBackend or CloudinaryStorageBackend instance.
+        Raises StorageError for an unknown provider, so a typo stops startup instead of
+        quietly writing uploads to local disk, and for a provider whose settings are
+        incomplete.
         """
         def cfg(key, default=None):
             if isinstance(config, dict):
                 return config.get(key, default)
             return getattr(config, key, default)
 
-        provider = (cfg("STORAGE_PROVIDER") or "local").lower().strip()
-
-        if provider == "cloudinary":
-            cloud_name = cfg("CLOUDINARY_CLOUD_NAME", "")
-            api_key    = cfg("CLOUDINARY_API_KEY", "")
-            api_secret = cfg("CLOUDINARY_API_SECRET", "")
-
-            missing = [
-                key for key, value in (
-                    ("CLOUDINARY_CLOUD_NAME", cloud_name),
-                    ("CLOUDINARY_API_KEY",    api_key),
-                    ("CLOUDINARY_API_SECRET", api_secret),
-                )
-                if not value
-            ]
-            if missing:
-                raise StorageError(
-                    "STORAGE_PROVIDER=cloudinary but these settings are empty: "
-                    + ", ".join(missing)
-                )
-
-            return CloudinaryStorageBackend(
-                cloud_name=cloud_name,
-                api_key=api_key,
-                api_secret=api_secret,
-                folder=cfg("CLOUDINARY_FOLDER", "resumes"),
+        provider = ((cfg("STORAGE_PROVIDER") or "").strip().lower()) or "local"
+        builder = _BUILDERS.get(provider)
+        if builder is None:
+            raise StorageError(
+                f"Unknown STORAGE_PROVIDER '{provider}'. Valid values: {', '.join(sorted(_BUILDERS))}."
             )
+        return builder(cfg)
 
-        # Default: local
-        return LocalStorageBackend(
-            upload_dir=cfg("UPLOAD_FOLDER", "/tmp/uploads"),
+
+def _build_local(cfg: Callable) -> "LocalStorageBackend":
+    return LocalStorageBackend(upload_dir=cfg("UPLOAD_FOLDER", "/tmp/uploads"))
+
+
+def _build_cloudinary(cfg: Callable) -> "CloudinaryStorageBackend":
+    values = {
+        "CLOUDINARY_CLOUD_NAME": cfg("CLOUDINARY_CLOUD_NAME", ""),
+        "CLOUDINARY_API_KEY":    cfg("CLOUDINARY_API_KEY", ""),
+        "CLOUDINARY_API_SECRET": cfg("CLOUDINARY_API_SECRET", ""),
+    }
+    missing = [name for name, value in values.items() if not value]
+    if missing:
+        raise StorageError(
+            "STORAGE_PROVIDER=cloudinary but these settings are empty: " + ", ".join(missing)
         )
+    return CloudinaryStorageBackend(
+        cloud_name=values["CLOUDINARY_CLOUD_NAME"],
+        api_key=values["CLOUDINARY_API_KEY"],
+        api_secret=values["CLOUDINARY_API_SECRET"],
+        folder=cfg("CLOUDINARY_FOLDER", "resumes"),
+    )
 
 
 def _random_key(ext: str) -> str:
@@ -170,8 +178,14 @@ class LocalStorageBackend:
         path = self._path(key)
         try:
             return path.read_bytes()
+        except FileNotFoundError as exc:
+            raise StorageNotFound(f"No stored file '{key}'.") from exc
         except OSError as exc:
             raise StorageError(f"Cannot read stored file '{key}': {exc}") from exc
+
+    def signed_url(self, key: str, ttl: int) -> None:
+        """Local files have no URL: the download route streams them after its checks."""
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -279,3 +293,13 @@ class CloudinaryStorageBackend:
         if not data:
             raise StorageError(f"Downloaded 0 bytes for '{key}'.")
         return data
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Registry: the one place a provider name becomes a backend
+# ─────────────────────────────────────────────────────────────────────────────
+
+_BUILDERS: dict[str, Callable[[Callable], StorageBackend]] = {
+    "local":      _build_local,
+    "cloudinary": _build_cloudinary,
+}

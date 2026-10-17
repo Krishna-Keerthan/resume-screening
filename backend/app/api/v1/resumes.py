@@ -116,11 +116,11 @@ def download_resume(resume_id: str):
 
     The resume's candidate, or a recruiter it was submitted to, may download
     the original file.
-      cloudinary — JSON { url, expires_in }: a signed URL that expires after
-                   DOWNLOAD_URL_TTL_SECONDS (300).
-      local      — the file itself, streamed as an attachment.
+      a backend with signed URLs — JSON { url, expires_in }: a URL that stops working
+                   after DOWNLOAD_URL_TTL_SECONDS (300).
+      one without (local) — the file itself, streamed as an attachment.
     """
-    from app.services.storage_service import StorageError, StorageService
+    from app.services.storage_service import StorageError, StorageNotFound, StorageService
     from app.utils.file_helpers import content_type_for, safe_download_name
 
     resume, err = get_viewable_resume(resume_id)
@@ -133,17 +133,16 @@ def download_resume(resume_id: str):
 
     storage = StorageService.from_config(current_app.config)
     try:
-        if storage.provider == "cloudinary":
-            ttl = current_app.config.get("DOWNLOAD_URL_TTL_SECONDS", 300)
-            return success(
-                data={"url": storage.signed_url(key, ttl=ttl), "expires_in": ttl},
-                message="Download link created.",
-            )
+        ttl = current_app.config.get("DOWNLOAD_URL_TTL_SECONDS", 300)
+        url = storage.signed_url(key, ttl=ttl)
+        if url is not None:
+            return success(data={"url": url, "expires_in": ttl}, message="Download link created.")
         data = storage.download_bytes(key)
+    except StorageNotFound:
+        logger.warning("download_resume: no stored file", extra={"resume_id": resume_id})
+        return error("The stored file for this resume was not found.", code="FILE_NOT_FOUND", status=404)
     except StorageError:
         logger.error("download_resume: storage failed", extra={"resume_id": resume_id}, exc_info=True)
-        if storage.provider == "local":
-            return error("The stored file for this resume was not found.", code="FILE_NOT_FOUND", status=404)
         return error("The file store is unavailable. Please try again.", code="STORAGE_UNAVAILABLE", status=502)
 
     ext = getattr(resume.file_type, "value", resume.file_type)
