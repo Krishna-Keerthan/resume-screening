@@ -2,10 +2,12 @@
 """
 wsgi.py  —  Gunicorn / production WSGI entry point.
 
-Gunicorn command (Render):
-    gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+Gunicorn command (Docker, Render, Procfile):
+    gunicorn -c gunicorn.conf.py wsgi:app
 
-The app object is resolved here once and reused by all gunicorn workers.
+Workers, timeout, bind address and log level come from gunicorn.conf.py. With its
+preload_app = True this module is imported once, in the master process, and the
+workers are forked from it.
 """
 
 import os

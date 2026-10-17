@@ -66,6 +66,9 @@ class BaseConfig:
     HOST:    str = os.getenv("HOST", "0.0.0.0")
     PORT:    int = _int_env("PORT", 5000)
     WORKERS: int = _int_env("WORKERS", 2)
+    # Longest gunicorn lets a request run. Axios gives up at 110 s and Vercel's proxy
+    # at 120 s, so this stays between them.
+    GUNICORN_TIMEOUT_SECONDS: int = _int_env("GUNICORN_TIMEOUT_SECONDS", 115)
 
     # ── Reverse proxies and the refresh cookie ────────────────────────────────
     # Proxies in front of the app that each append to X-Forwarded-For. ProxyFix
@@ -128,6 +131,9 @@ class BaseConfig:
     # ── Embeddings ────────────────────────────────────────────────────────────
     EMBEDDING_MODEL:     str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
     EMBEDDING_CACHE_DIR: str = os.getenv("EMBEDDING_CACHE_DIR", ".cache/embeddings")
+    # Threads torch (and OpenMP, via gunicorn.conf.py) may use. 1 keeps the preloaded
+    # master safe to fork and the memory footprint small.
+    TORCH_NUM_THREADS:   int = _int_env("TORCH_NUM_THREADS", 1)
 
     # ── Matching Weights ──────────────────────────────────────────────────────
     WEIGHT_SEMANTIC:        float = _float_env("WEIGHT_SEMANTIC", 0.40)

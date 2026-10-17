@@ -122,3 +122,78 @@ per deploy, before the app starts. Production never calls `db.create_all()`
   race creating the tables).
 - Alembic builds the production config, so `SECRET_KEY`, `DATABASE_URL` and
   `RATE_LIMIT_STORAGE_URL` (Redis) must exist in the environment.
+
+## How the server is started
+
+Docker, the Procfile and `render.yaml` all run the same thing from `backend/`:
+`gunicorn -c gunicorn.conf.py wsgi:app` (Render and the Procfile run
+`alembic upgrade head` first). `gunicorn.conf.py` reads workers, timeout, bind
+address and log level from `config/settings.py`, so no launcher repeats them:
+
+| Setting | Env var | Default |
+|---|---|---|
+| workers | `WORKERS` | 2 |
+| timeout | `GUNICORN_TIMEOUT_SECONDS` | 115 |
+| bind | `HOST`, `PORT` (Render sets `PORT`) | `0.0.0.0:5000` |
+| log level | `LOG_LEVEL` | `WARNING` in production |
+| torch / OpenMP threads | `TORCH_NUM_THREADS` | 1 |
+
+`preload_app = True`: the app, and the embedding model, load once in the master and
+the workers are forked from it. OpenMP and torch are limited to one thread because a
+thread pool created before the fork can deadlock in the workers.
+
+Timeouts, innermost first: one Groq call (`GROQ_CALL_BUDGET_SECONDS`, 100 s; startup
+refuses a `GROQ_TIMEOUT_SECONDS` / `GROQ_MAX_RETRIES` pair whose worst case reaches
+it, 93 s with the defaults) < axios (110 s, `frontend/lib/api/client.ts`) < gunicorn
+(115 s) < Vercel's proxy (120 s). A test fails if any of them is reordered.
+One call is bounded, but one request is not: `POST /applications/` can make two Groq
+calls in a row (score explanation, then the improvement plan), so its worst case is
+above 115 s.
+
+## Memory against Render's 512 MB
+
+Measured with real gunicorn on WSL2 (Python 3.11, CPU torch 2.3, SQLite, development
+config): boot, then one DOCX upload and 8 real `POST /scores/match` requests with the
+semantic model available. PSS counts shared pages once, so it is the figure to compare
+with the instance limit; RSS counts shared pages in every process.
+
+| Workers | Preload | After boot (total PSS) | After 8 scoring requests | Per process RSS after requests |
+|---|---|---|---|---|
+| 2 | no | 733 MB | 751 MB | workers 466 and 454 MB |
+| 2 | yes | 460 MB | **538 MB** | master 452, workers 364 and 377 MB |
+| 1 | no | 455 MB | 470 MB | worker 467 MB |
+| 1 | yes | 454 MB | 500 MB | master 452, worker 377 MB |
+
+- Preload saves about 210 MB with two workers but does not help with one.
+- Two workers do **not** fit in 512 MB once warm, with or without preload. One worker
+  fits with little room (470 to 500 MB before Postgres drivers, Cloudinary and real
+  traffic). This was not measured on Render itself.
+- The embedding model is not in the Docker image (`.dockerignore` excludes `.cache/`),
+  so every cold start downloads about 90 MB from Hugging Face before the app serves.
+
+## First deploy, step by step
+
+1. **Accounts and secrets:** Cloudinary cloud name, API key and secret; a Groq API key
+   (optional, LLM features are off without it).
+2. **Check `render.yaml`'s location.** It lives in `backend/` and has no `rootDir`.
+   Render looks for the blueprint at the repository root and builds from the root
+   unless `rootDir: backend` is set on the service, so the blueprint path and
+   `rootDir` need checking before the first sync. This has not been tried.
+3. **Create the Render blueprint** (web service, `ats-postgres`, `ats-ratelimit`
+   Key Value). Fill the `sync: false` values: `CLOUDINARY_CLOUD_NAME`,
+   `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `GROQ_API_KEY`. Leave
+   `ALLOWED_ORIGINS` as a placeholder for now. Keep one instance.
+4. **Let the first deploy run.** The log shows `alembic upgrade head` running 0001,
+   0002 and 0003, then gunicorn loading the model and starting. If the Cloudinary
+   values are incomplete, the app refuses to start and says which one is missing.
+5. **Check the backend directly:** `GET https://<service>.onrender.com/api/v1/health`
+   returns 200. Do not log in here.
+6. **Create the Vercel project** from `frontend/`, set `API_PROXY_TARGET` to the
+   Render origin (no `/api/v1`), and deploy. The build fails with a clear message if
+   it is unset.
+7. **Back on Render,** set `ALLOWED_ORIGINS` to the Vercel URL and redeploy.
+8. **Register and log in on the Vercel URL.** Check the cookie in DevTools and hard
+   reload a protected page.
+9. **Verify the proxy hop count** (section above), then turn `LOG_PROXY_CHAIN` off.
+10. **Test the proxy limits** (upload sizes, first request after idle), and run
+    `docs/cloudinary-smoke-test.md` with real credentials.
