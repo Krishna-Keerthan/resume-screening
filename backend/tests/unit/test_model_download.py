@@ -59,3 +59,12 @@ def test_the_docker_image_downloads_the_model_before_the_app_code_is_copied():
     assert pip_install < download < copy_everything
     assert re.search(r"COPY config/? config/", dockerfile)
     assert "COPY scripts/download_model.py" in dockerfile
+
+
+def test_compose_dev_downloads_the_model_because_its_bind_mount_hides_the_one_in_the_image():
+    compose = yaml.safe_load(_read(_REPO, "docker-compose.yml"))
+    flask = compose["services"]["flask"]
+
+    assert "./backend:/app" in flask["volumes"]
+    # the image sets EMBEDDING_OFFLINE=true, but /app/.cache from the image is not visible here
+    assert str(flask["environment"]["EMBEDDING_OFFLINE"]).lower() == "false"

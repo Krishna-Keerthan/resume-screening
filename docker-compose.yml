@@ -41,6 +41,9 @@ services:
       - ./backend/.env
     environment:
       DATABASE_URL: postgresql://postgres:ats_pass@ats_postgres:5432/ats_db
+      # ./backend is bind-mounted over /app, hiding the model baked into the image, so
+      # download it into the mounted .cache instead of loading from the cache only.
+      EMBEDDING_OFFLINE: "false"
     depends_on:
       db:
         condition: service_healthy
