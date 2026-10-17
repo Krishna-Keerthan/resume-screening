@@ -49,3 +49,9 @@ def test_the_key_value_store_declares_who_may_connect(blueprint):
     (store,) = [s for s in blueprint["services"] if s["type"] == "keyvalue"]
 
     assert "ipAllowList" in store      # required by the schema for keyvalue services
+
+
+def test_the_blueprint_leaves_the_worker_count_to_the_config_default(web):
+    # Render's 512 MB fits one worker (docs/deploy_phase3.md); the default lives in config only.
+    assert "WORKERS" not in {e["key"] for e in web["envVars"]}
+

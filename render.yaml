@@ -51,8 +51,6 @@ services:
         value: WARNING
       - key: LOG_FORMAT
         value: json
-      - key: WORKERS
-        value: "2"
     healthCheckPath: /api/v1/health
 
   # Shared rate-limit counters for every gunicorn worker. Internal traffic only.

@@ -210,3 +210,15 @@ def test_production_reads_the_log_level_and_format_from_the_environment():
     got = _read_settings("production", {"LOG_LEVEL": "ERROR", "LOG_FORMAT": "text"}, _LOG_KEYS)
 
     assert got == {"LOG_LEVEL": "ERROR", "LOG_FORMAT": "text"}
+
+
+# ─── workers ──────────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("env_name, workers", [("development", 2), ("production", 1)])
+def test_worker_count_defaults_per_environment(env_name, workers):
+    assert _read_settings(env_name, {}, ("WORKERS",)) == {"WORKERS": workers}
+
+
+def test_production_reads_the_worker_count_from_the_environment():
+    assert _read_settings("production", {"WORKERS": "3"}, ("WORKERS",)) == {"WORKERS": 3}
+

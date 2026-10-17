@@ -34,6 +34,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
+from app.core.process_memory import log_rss
+
 logger = logging.getLogger(__name__)
 
 
@@ -382,6 +384,7 @@ class AtsScorerService:
             "semantic_component_scores": sem_result.component_scores,
             "weights_used":              self._weights,
         }
+        log_rss("scored")
         return scores, sq_missing
 
     # ── Helpers ────────────────────────────────────────────────────────────────

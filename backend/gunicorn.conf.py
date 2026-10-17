@@ -28,3 +28,9 @@ loglevel = _config.LOG_LEVEL.lower()
 # Load the app (and the embedding model) once in the master; the workers are forked
 # from it and share those pages instead of each loading a copy.
 preload_app = True
+
+
+def post_fork(server, worker):
+    """Report each worker's memory right after the fork, to compare with the master's."""
+    from app.core.process_memory import log_rss
+    log_rss("worker_start")

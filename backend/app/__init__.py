@@ -42,6 +42,7 @@ from flask import Flask, jsonify
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.core.logging import configure_logging
+from app.core.process_memory import log_rss
 from config import get_config
 
 logger = logging.getLogger(__name__)
@@ -110,6 +111,7 @@ def create_app(env: str | None = None) -> Flask:
     _validate_config(app)
 
     logger.info("Application ready.", extra={"env": env or os.getenv("APP_ENV", "development")})
+    log_rss("startup")
     return app
 
 

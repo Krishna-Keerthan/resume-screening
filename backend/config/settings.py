@@ -196,6 +196,9 @@ class DevelopmentConfig(BaseConfig):
 class ProductionConfig(BaseConfig):
     DEBUG:      bool = False
     TESTING:    bool = False
+    # One worker: the app and its embedding model measured 470 to 500 MB, and two
+    # workers 538 MB, against Render's 512 MB (docs/deploy_phase3.md).
+    WORKERS: int = _int_env("WORKERS", 1)
     # Quieter than development unless LOG_LEVEL says otherwise. The temporary
     # LOG_PROXY_CHAIN line is a WARNING, so ERROR or above hides it.
     LOG_LEVEL:  str  = os.getenv("LOG_LEVEL", "WARNING")

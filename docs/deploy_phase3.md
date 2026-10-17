@@ -132,7 +132,7 @@ address and log level from `config/settings.py`, so no launcher repeats them:
 
 | Setting | Env var | Default |
 |---|---|---|
-| workers | `WORKERS` | 2 |
+| workers | `WORKERS` | 1 in production, 2 in development |
 | timeout | `GUNICORN_TIMEOUT_SECONDS` | 115 |
 | bind | `HOST`, `PORT` (Render sets `PORT`) | `0.0.0.0:5000` |
 | log level | `LOG_LEVEL` | `WARNING` in production |
@@ -168,8 +168,25 @@ with the instance limit; RSS counts shared pages in every process.
 - Two workers do **not** fit in 512 MB once warm, with or without preload. One worker
   fits with little room (470 to 500 MB before Postgres drivers, Cloudinary and real
   traffic). This was not measured on Render itself.
+- **Production therefore runs one worker** (`WORKERS` defaults to 1 there, and
+  `render.yaml` does not set it). Raise it only on an instance with more memory.
 - The embedding model is not in the Docker image (`.dockerignore` excludes `.cache/`),
   so every cold start downloads about 90 MB from Hugging Face before the app serves.
+
+### Reading real memory on the first deploy
+
+The app logs one INFO line from the logger `app.memory` (visible even at
+`LOG_LEVEL=WARNING`) with `stage`, `pid` and `rss_mb`, read from `/proc/self/status`:
+
+| `stage` | When | Process |
+|---|---|---|
+| `startup` | the app finished loading | the gunicorn master (preload) |
+| `worker_start` | right after each fork | the worker |
+| `scored` | after every scored résumé x job pair | the worker |
+
+RSS counts pages shared with the master in every process, so the worker's figure is
+higher than the memory it adds. Compare the master's plus the worker's growth with the
+512 MB limit, and watch Render's own memory graph for the real total.
 
 ## First deploy, step by step
 
