@@ -190,8 +190,9 @@ class DevelopmentConfig(BaseConfig):
 class ProductionConfig(BaseConfig):
     DEBUG:      bool = False
     TESTING:    bool = False
-    LOG_LEVEL:  str  = "WARNING"
-    LOG_FORMAT: str  = "json"
+    # Quieter than development unless LOG_LEVEL says otherwise. The temporary
+    # LOG_PROXY_CHAIN line is a WARNING, so ERROR or above hides it.
+    LOG_LEVEL:  str  = os.getenv("LOG_LEVEL", "WARNING")
     CREATE_TABLES_ON_STARTUP: bool = False
     # Vercel's proxy, then Render's. Confirm with LOG_PROXY_CHAIN after a deploy.
     TRUSTED_PROXY_HOPS:    int  = _int_env("TRUSTED_PROXY_HOPS", 2)

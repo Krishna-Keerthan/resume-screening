@@ -194,3 +194,19 @@ def test_the_database_pool_comes_from_the_environment():
     options = _read_settings("production", env, _POOL_KEYS)["SQLALCHEMY_ENGINE_OPTIONS"]
 
     assert (options["pool_size"], options["max_overflow"], options["pool_timeout"]) == (7, 3, 11)
+
+
+# ─── logging ──────────────────────────────────────────────────────────────────
+
+_LOG_KEYS = ("LOG_LEVEL", "LOG_FORMAT")
+
+
+@pytest.mark.parametrize("env_name, level", [("development", "INFO"), ("production", "WARNING")])
+def test_log_level_defaults_per_environment(env_name, level):
+    assert _read_settings(env_name, {}, _LOG_KEYS) == {"LOG_LEVEL": level, "LOG_FORMAT": "json"}
+
+
+def test_production_reads_the_log_level_and_format_from_the_environment():
+    got = _read_settings("production", {"LOG_LEVEL": "ERROR", "LOG_FORMAT": "text"}, _LOG_KEYS)
+
+    assert got == {"LOG_LEVEL": "ERROR", "LOG_FORMAT": "text"}
