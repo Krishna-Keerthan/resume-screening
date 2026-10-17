@@ -276,3 +276,53 @@ def test_a_url_with_a_path_after_the_host_is_refused():
 
 def test_the_object_key_pattern_is_the_shared_one(backend):
     assert re.fullmatch(r"[0-9a-f]{32}\.pdf", backend.upload(PDF, "pdf").key)
+
+
+# ─── one HTTP client, not one per call ────────────────────────────────────────
+
+@pytest.fixture()
+def clients_built(monkeypatch):
+    """Count the httpx clients the backend builds."""
+    import httpx
+
+    built = []
+    real = httpx.Client
+
+    def counting(*args, **kwargs):
+        built.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr("app.services.storage_service.httpx.Client", counting)
+    return built
+
+
+def test_every_call_reuses_one_http_client(backend, clients_built):
+    # a client per call built a new SSL context each time: about 3 MB more RSS after 8 calls
+    key = backend.upload(PDF, "pdf").key
+    backend.signed_url(key, ttl=300)
+    backend.download_bytes(key)
+    backend.bucket_is_private()
+    backend.delete(key)
+
+    assert len(clients_built) == 1
+
+
+def test_a_forked_worker_builds_its_own_client_instead_of_sharing_the_parents_sockets(
+    backend, clients_built, monkeypatch
+):
+    import os
+
+    backend.upload(PDF, "pdf")
+    pid = os.getpid()
+    monkeypatch.setattr("app.services.storage_service.os.getpid", lambda: pid + 1)
+
+    backend.upload(PDF, "pdf")
+
+    assert len(clients_built) == 2
+
+
+def test_the_factory_returns_the_same_backend_for_the_same_settings():
+    first = StorageService.from_config(_SETTINGS)
+
+    assert StorageService.from_config(dict(_SETTINGS)) is first
+    assert StorageService.from_config({**_SETTINGS, "SUPABASE_BUCKET": "other"}) is not first

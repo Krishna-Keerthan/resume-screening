@@ -27,8 +27,11 @@ Usage (in upload_resume route):
     # result.key -> stored in Resume.storage_key (the source of truth)
 """
 
+import functools
 import logging
+import os
 import re
+import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -118,11 +121,15 @@ def _build_supabase(cfg: Callable) -> "SupabaseStorageBackend":
             "SUPABASE_URL must be the project's base URL, for example https://<project>.supabase.co "
             "(http or https, no path: the backend adds /storage/v1 itself)."
         )
-    return SupabaseStorageBackend(
-        url=values["SUPABASE_URL"],
-        service_role_key=values["SUPABASE_SERVICE_ROLE_KEY"],
-        bucket=values["SUPABASE_BUCKET"],
+    return _supabase_backend(
+        values["SUPABASE_URL"], values["SUPABASE_SERVICE_ROLE_KEY"], values["SUPABASE_BUCKET"],
     )
+
+
+@functools.lru_cache(maxsize=8)
+def _supabase_backend(url: str, service_role_key: str, bucket: str) -> "SupabaseStorageBackend":
+    """The same backend (and so the same HTTP client) for the same settings, across requests."""
+    return SupabaseStorageBackend(url=url, service_role_key=service_role_key, bucket=bucket)
 
 
 def _random_key(ext: str) -> str:
@@ -230,6 +237,9 @@ class SupabaseStorageBackend:
         if service_role_key.startswith("eyJ"):                       # a legacy JWT key
             self._headers["Authorization"] = f"Bearer {service_role_key}"
         self._transport = transport          # tests pass an httpx.MockTransport
+        self._client: "httpx.Client | None" = None
+        self._client_pid: int | None = None
+        self._client_lock = threading.Lock()
 
     def __repr__(self) -> str:
         return f"SupabaseStorageBackend(bucket={self._bucket!r})"
@@ -282,13 +292,24 @@ class SupabaseStorageBackend:
 
     # ── plumbing ──────────────────────────────────────────────────────────────
 
+    def _http(self) -> "httpx.Client":
+        """
+        One client (and so one SSL context and connection pool) for all calls: a client per
+        call cost about 3 MB more RSS after 8 calls. It is created on first use, and again in
+        a forked process, so gunicorn workers never share the master's sockets.
+        """
+        with self._client_lock:
+            if self._client is None or self._client_pid != os.getpid():
+                self._client = httpx.Client(
+                    base_url=self._base, headers=self._headers,
+                    timeout=self._TIMEOUT_SECONDS, transport=self._transport,
+                )
+                self._client_pid = os.getpid()
+            return self._client
+
     def _send(self, method: str, path: str, **kwargs) -> "httpx.Response":
         try:
-            with httpx.Client(
-                base_url=self._base, headers=self._headers,
-                timeout=self._TIMEOUT_SECONDS, transport=self._transport,
-            ) as client:
-                response = client.request(method, path, **kwargs)
+            response = self._http().request(method, path, **kwargs)
         except httpx.HTTPError as exc:
             # the exception text can contain the URL; the class name is enough
             raise StorageError(f"Supabase Storage request failed: {type(exc).__name__}") from exc
