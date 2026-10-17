@@ -34,6 +34,9 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Protocol
+from urllib.parse import quote, urlsplit
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +118,30 @@ def _build_cloudinary(cfg: Callable) -> "CloudinaryStorageBackend":
         api_key=values["CLOUDINARY_API_KEY"],
         api_secret=values["CLOUDINARY_API_SECRET"],
         folder=cfg("CLOUDINARY_FOLDER", "resumes"),
+    )
+
+
+def _build_supabase(cfg: Callable) -> "SupabaseStorageBackend":
+    values = {
+        "SUPABASE_URL":              cfg("SUPABASE_URL", ""),
+        "SUPABASE_SERVICE_ROLE_KEY": cfg("SUPABASE_SERVICE_ROLE_KEY", ""),
+        "SUPABASE_BUCKET":           cfg("SUPABASE_BUCKET", ""),
+    }
+    missing = [name for name, value in values.items() if not value]
+    if missing:
+        raise StorageError(
+            "STORAGE_PROVIDER=supabase but these settings are empty: " + ", ".join(missing)
+        )
+    parts = urlsplit(values["SUPABASE_URL"])
+    if parts.scheme not in ("http", "https") or not parts.netloc or parts.path not in ("", "/"):
+        raise StorageError(
+            "SUPABASE_URL must be the project's base URL, for example https://<project>.supabase.co "
+            "(http or https, no path: the backend adds /storage/v1 itself)."
+        )
+    return SupabaseStorageBackend(
+        url=values["SUPABASE_URL"],
+        service_role_key=values["SUPABASE_SERVICE_ROLE_KEY"],
+        bucket=values["SUPABASE_BUCKET"],
     )
 
 
@@ -296,10 +323,129 @@ class CloudinaryStorageBackend:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Supabase Storage backend
+# ─────────────────────────────────────────────────────────────────────────────
+
+_CONTENT_TYPES = {
+    "pdf":  "application/pdf",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+
+
+class SupabaseStorageBackend:
+    """
+    Supabase Storage backend, through its REST API (https://supabase.com/docs/reference/api).
+
+    The bucket must be private (no public policy): objects have no public URL, and a
+    download is a signed URL that stops working after its expiry. The key is the object's
+    path in the bucket, a random name. Calls are made with the project's service-role key,
+    which bypasses row-level security: it stays on the server, is sent only in request
+    headers, and is never logged, returned or put in an error message.
+    """
+
+    provider = "supabase"
+    _TIMEOUT_SECONDS = 30.0
+
+    def __init__(self, url: str, service_role_key: str, bucket: str, *, transport=None):
+        self._base = f"{url.rstrip('/')}/storage/v1"
+        self._bucket = quote(bucket, safe="")
+        self._headers = {"Authorization": f"Bearer {service_role_key}", "apikey": service_role_key}
+        self._transport = transport          # tests pass an httpx.MockTransport
+
+    def __repr__(self) -> str:
+        return f"SupabaseStorageBackend(bucket={self._bucket!r})"
+
+    # ── calls ─────────────────────────────────────────────────────────────────
+
+    def upload(self, file_bytes: bytes, ext: str) -> StorageResult:
+        """Upload bytes as a new object under a random key; an existing key is never overwritten."""
+        key = _random_key(ext)
+        content_type = _CONTENT_TYPES.get(key.rpartition(".")[2], "application/octet-stream")
+        self._send(
+            "POST", f"/object/{self._bucket}/{key}",
+            files={"file": (key, file_bytes, content_type)},
+            headers={"x-upsert": "false"},
+        )
+        size_kb = max(1, round(len(file_bytes) / 1024))
+        logger.info("Supabase upload complete", extra={"key": key, "size_kb": size_kb})
+        return StorageResult(key=key, size_kb=size_kb, provider=self.provider)
+
+    def signed_url(self, key: str, ttl: int) -> str:
+        """A download URL for key that Supabase stops honouring after ttl seconds."""
+        _check_key(key)
+        response = self._send(
+            "POST", f"/object/sign/{self._bucket}/{quote(key, safe='/')}", json={"expiresIn": int(ttl)},
+        )
+        signed = response.json().get("signedURL")
+        if not signed:
+            raise StorageError("Supabase Storage returned no signed URL.")
+        return f"{self._base}/{signed.lstrip('/')}"
+
+    def download_bytes(self, key: str) -> bytes:
+        _check_key(key)
+        data = self._send("GET", f"/object/{self._bucket}/{quote(key, safe='/')}").content
+        if not data:
+            raise StorageError("Supabase Storage returned an empty file.")
+        return data
+
+    def delete(self, key: str) -> None:
+        """Delete the object; best-effort, a failure is logged and never raised."""
+        try:
+            _check_key(key)
+            self._send("DELETE", f"/object/{self._bucket}", json={"prefixes": [key]})
+            logger.info("Supabase file deleted", extra={"key": key})
+        except StorageError as exc:
+            logger.warning("Failed to delete a Supabase file", extra={"key": key, "error": str(exc)})
+
+    # ── plumbing ──────────────────────────────────────────────────────────────
+
+    def _send(self, method: str, path: str, **kwargs) -> "httpx.Response":
+        try:
+            with httpx.Client(
+                base_url=self._base, headers=self._headers,
+                timeout=self._TIMEOUT_SECONDS, transport=self._transport,
+            ) as client:
+                response = client.request(method, path, **kwargs)
+        except httpx.HTTPError as exc:
+            # the exception text can contain the URL; the class name is enough
+            raise StorageError(f"Supabase Storage request failed: {type(exc).__name__}") from exc
+        if response.is_success:
+            return response
+        message = _error_message(response)
+        if _is_not_found(response):
+            raise StorageNotFound(f"Supabase Storage: not found ({message}).")
+        raise StorageError(f"Supabase Storage returned {response.status_code}: {message}")
+
+
+def _check_key(key: str) -> None:
+    """Refuse keys that are empty or could climb out of the bucket's key space."""
+    if not key or key.startswith("/") or "\\" in key or ".." in key.split("/"):
+        raise StorageError("Invalid storage key.")
+
+
+def _error_json(response) -> dict:
+    try:
+        body = response.json()
+    except ValueError:
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+def _is_not_found(response) -> bool:
+    # Supabase reports a missing object as HTTP 400 with {"statusCode": "404"} as well as 404.
+    return response.status_code == 404 or str(_error_json(response).get("statusCode")) == "404"
+
+
+def _error_message(response) -> str:
+    return str(_error_json(response).get("message") or "no message")[:200]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Registry: the one place a provider name becomes a backend
 # ─────────────────────────────────────────────────────────────────────────────
 
 _BUILDERS: dict[str, Callable[[Callable], StorageBackend]] = {
     "local":      _build_local,
     "cloudinary": _build_cloudinary,
+    "supabase":   _build_supabase,
 }

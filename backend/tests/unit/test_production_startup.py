@@ -111,3 +111,28 @@ def test_production_starts_with_a_complete_cloudinary_setup(tmp_path):
     out = _run("production", tmp_path / "prod.db", _CLOUDINARY)
 
     assert out.returncode == 0, out.stderr
+
+
+_SUPABASE = {
+    "STORAGE_PROVIDER": "supabase",
+    "SUPABASE_URL": "https://project.supabase.co",
+    "SUPABASE_SERVICE_ROLE_KEY": "service-role-key-must-not-leak",
+    "SUPABASE_BUCKET": "resumes",
+}
+
+
+@pytest.mark.parametrize("missing", ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_BUCKET"])
+def test_production_refuses_to_start_with_an_incomplete_supabase_setup(tmp_path, missing):
+    out = _run("production", tmp_path / "prod.db", {**_SUPABASE, missing: ""})
+
+    assert out.returncode != 0
+    assert "StorageError" in out.stderr
+    assert missing in out.stderr
+    assert "service-role-key-must-not-leak" not in out.stderr
+
+
+def test_production_starts_with_a_complete_supabase_setup(tmp_path):
+    out = _run("production", tmp_path / "prod.db", _SUPABASE)
+
+    assert out.returncode == 0, out.stderr
+

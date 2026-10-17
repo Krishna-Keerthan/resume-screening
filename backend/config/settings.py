@@ -135,6 +135,11 @@ class BaseConfig:
     CLOUDINARY_API_KEY:    str = os.getenv("CLOUDINARY_API_KEY", "")
     CLOUDINARY_API_SECRET: str = os.getenv("CLOUDINARY_API_SECRET", "")
     CLOUDINARY_FOLDER:     str = os.getenv("CLOUDINARY_FOLDER", "resumes")
+    # STORAGE_PROVIDER=supabase. The service-role key is server-side only: it bypasses
+    # row-level security, so it is never logged, returned or sent to the browser.
+    SUPABASE_URL:              str = os.getenv("SUPABASE_URL", "")
+    SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    SUPABASE_BUCKET:           str = os.getenv("SUPABASE_BUCKET", "")
 
     # ── Logging ───────────────────────────────────────────────────────────────
     LOG_LEVEL:  str = os.getenv("LOG_LEVEL", "INFO")

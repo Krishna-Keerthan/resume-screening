@@ -24,7 +24,9 @@ from app.services.storage_service import (
     StorageError,
     StorageNotFound,
     StorageResult,
+    SupabaseStorageBackend,
 )
+from tests.unit.fake_supabase import BUCKET, SERVICE_KEY, URL, FakeSupabase
 
 PDF = b"%PDF-1.4 contract test"
 
@@ -33,7 +35,11 @@ def _local(tmp_path):
     return LocalStorageBackend(str(tmp_path / "uploads"))
 
 
-BACKENDS = {"local": _local}
+def _supabase(tmp_path):
+    return SupabaseStorageBackend(URL, SERVICE_KEY, BUCKET, transport=FakeSupabase().transport)
+
+
+BACKENDS = {"local": _local, "supabase": _supabase}
 
 
 @pytest.fixture(params=sorted(BACKENDS))
