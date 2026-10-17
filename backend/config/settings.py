@@ -144,6 +144,11 @@ class BaseConfig:
     GROQ_MAX_TOKENS:      int   = _int_env("GROQ_MAX_TOKENS", 1024)
     GROQ_TEMPERATURE:     float = _float_env("GROQ_TEMPERATURE", 0.3)
     GROQ_TIMEOUT_SECONDS: int   = _int_env("GROQ_TIMEOUT_SECONDS", 30)
+    # Retries after the first attempt. With the timeout above, one call can take
+    # (retries + 1) x timeout plus backoff; startup checks it against the budget.
+    GROQ_MAX_RETRIES:     int   = _int_env("GROQ_MAX_RETRIES", 2)
+    # Axios gives up at 110 s and gunicorn at 115 s: one call must end well before.
+    GROQ_CALL_BUDGET_SECONDS: int = _int_env("GROQ_CALL_BUDGET_SECONDS", 100)
 
     # ── Rate limiting ─────────────────────────────────────────────────────────
     # Per caller: the user id from the access token, else the client IP.

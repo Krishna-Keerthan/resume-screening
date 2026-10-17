@@ -97,6 +97,7 @@ class ServiceFactory:
             max_tokens=cfg("GROQ_MAX_TOKENS", 1024),
             temperature=cfg("GROQ_TEMPERATURE", 0.3),
             timeout=cfg("GROQ_TIMEOUT_SECONDS", 30),
+            max_retries=cfg("GROQ_MAX_RETRIES", 2),
         )
 
         # ── Storage backend ────────────────────────────────────────────────────

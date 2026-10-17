@@ -369,9 +369,18 @@ def _validate_config(app: Flask) -> None:
     from app.services.storage_service import StorageService
     StorageService.from_config(app.config)
 
-    # ── Groq API key ──────────────────────────────────────────────────────────
+    # ── Groq API key and time budget ──────────────────────────────────────────
     if not app.config.get("GROQ_API_KEY"):
         logger.warning("GROQ_API_KEY is not set. Groq-powered features will be unavailable.")
+
+    from app.services.groq_service import worst_case_seconds
+    groq_worst = worst_case_seconds(app.config["GROQ_TIMEOUT_SECONDS"], app.config["GROQ_MAX_RETRIES"])
+    if groq_worst >= app.config["GROQ_CALL_BUDGET_SECONDS"]:
+        issues.append(
+            f"GROQ_TIMEOUT_SECONDS={app.config['GROQ_TIMEOUT_SECONDS']} with "
+            f"GROQ_MAX_RETRIES={app.config['GROQ_MAX_RETRIES']} lets one Groq call take "
+            f"{groq_worst:.0f}s; it must stay under {app.config['GROQ_CALL_BUDGET_SECONDS']}s."
+        )
 
     # ── Scoring weight sum ────────────────────────────────────────────────────
     weights = (

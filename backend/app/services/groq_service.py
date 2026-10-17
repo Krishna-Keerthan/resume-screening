@@ -7,7 +7,9 @@ graceful degradation when the API key is absent or unavailable.
 Design decisions:
   - All prompts request JSON output.  The response parser strips any
     markdown fences before parsing to handle imperfect model output.
-  - Retry: up to 3 attempts with exponential backoff (1s, 2s, 4s).
+  - Retry: one attempt plus max_retries retries (GROQ_MAX_RETRIES) with
+    exponential backoff (1s, 2s, 4s, ...). The SDK's own retries are off, so
+    worst_case_seconds() is the real upper bound on one call.
   - available flag: callers can check before calling to decide whether
     to show LLM-powered features in the UI.
   - Prompt templates are class-level constants — easy to audit and tune.
@@ -29,7 +31,17 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_RETRY_DELAYS = (1.0, 2.0, 4.0)  # seconds between retries
+
+def backoff_seconds(retry: int) -> float:
+    """Wait before retry number `retry` (1-based): 1 s, 2 s, 4 s, ..."""
+    return 2.0 ** (retry - 1)
+
+
+def worst_case_seconds(timeout: float, max_retries: int) -> float:
+    """Longest one call can take: every attempt times out, plus all the waiting."""
+    waiting = sum(backoff_seconds(retry) for retry in range(1, max_retries + 1))
+    return (max_retries + 1) * timeout + waiting
+
 
 
 class GroqService:
@@ -48,12 +60,14 @@ class GroqService:
         max_tokens: int = 1024,
         temperature: float = 0.3,
         timeout: int = 30,
+        max_retries: int = 2,
     ):
         self.api_key = api_key
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.timeout = timeout
+        self.max_retries = max_retries
         self._client: Any = None
         self.available = False
         self._init_client()
@@ -66,7 +80,7 @@ class GroqService:
             return
         try:
             from groq import Groq
-            self._client = Groq(api_key=self.api_key, timeout=self.timeout)
+            self._client = Groq(api_key=self.api_key, timeout=self.timeout, max_retries=0)
             self.available = True
             logger.info("Groq client initialised (model=%s).", self.model)
         except ImportError:
@@ -91,10 +105,9 @@ class GroqService:
         
         _max_tokens = max_tokens or self.max_tokens
 
-        for attempt, delay in enumerate((*_RETRY_DELAYS, None), start=1):
+        attempts = self.max_retries + 1
+        for attempt in range(1, attempts + 1):
             try:
-               
-
                 response = self._client.chat.completions.create(
                     model=self.model,
                     messages=[
@@ -106,12 +119,9 @@ class GroqService:
                 )
                 return response.choices[0].message.content
             except Exception as exc:
-                logger.warning(
-                    "Groq attempt %d/%d failed: %s",
-                    attempt, len(_RETRY_DELAYS) + 1, exc
-                )
-                if delay is not None:
-                    time.sleep(delay)
+                logger.warning("Groq attempt %d/%d failed: %s", attempt, attempts, exc)
+                if attempt < attempts:
+                    time.sleep(backoff_seconds(attempt))
 
         logger.error("All Groq retries exhausted.")
         return None
