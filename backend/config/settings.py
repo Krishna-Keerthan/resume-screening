@@ -82,6 +82,12 @@ class BaseConfig:
     SQLALCHEMY_TRACK_MODIFICATIONS: bool = False
     SQLALCHEMY_ECHO:                bool = False
 
+    # Connections per gunicorn worker: up to DB_POOL_SIZE kept open plus
+    # DB_MAX_OVERFLOW extra under load, each waiting up to DB_POOL_TIMEOUT s.
+    DB_POOL_SIZE:    int = _int_env("DB_POOL_SIZE", 5)
+    DB_MAX_OVERFLOW: int = _int_env("DB_MAX_OVERFLOW", 10)
+    DB_POOL_TIMEOUT: int = _int_env("DB_POOL_TIMEOUT", 30)
+
     # A property, so each instance gets its own dict rather than sharing one
     # mutable class-level dict across all subclasses.
     @property
@@ -89,8 +95,9 @@ class BaseConfig:
         return {
             "pool_pre_ping": True,
             "pool_recycle":  300,
-            "pool_size":     5,
-            "max_overflow":  10,
+            "pool_size":     self.DB_POOL_SIZE,
+            "max_overflow":  self.DB_MAX_OVERFLOW,
+            "pool_timeout":  self.DB_POOL_TIMEOUT,
         }
 
     # ── CORS ──────────────────────────────────────────────────────────────────

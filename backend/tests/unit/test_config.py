@@ -131,14 +131,14 @@ def test_production_config_accepts_a_shared_rate_limit_store(monkeypatch):
 _PROXY_KEYS = ("TRUSTED_PROXY_HOPS", "LOG_PROXY_CHAIN", "REFRESH_COOKIE_SECURE")
 
 
-def _read_settings(env_name, overrides):
-    """Read the proxy/cookie settings in a fresh interpreter: they are read from the environment at import."""
+def _read_settings(env_name, overrides, keys=_PROXY_KEYS):
+    """Read settings in a fresh interpreter: they are read from the environment at import."""
     import json
     import os
     import subprocess
     import sys
 
-    env = {k: v for k, v in os.environ.items() if k not in _PROXY_KEYS}
+    env = {k: v for k, v in os.environ.items() if k not in keys}
     env.update({
         "SECRET_KEY": "x" * 64,
         "DATABASE_URL": "postgresql://u:p@db/ats",
@@ -149,7 +149,7 @@ def _read_settings(env_name, overrides):
         "import json\n"
         "from config import get_config\n"
         f"cfg = get_config({env_name!r})\n"
-        f"print(json.dumps({{k: getattr(cfg, k) for k in {list(_PROXY_KEYS)!r}}}))\n"
+        f"print(json.dumps({{k: getattr(cfg, k) for k in {list(keys)!r}}}))\n"
     )
     out = subprocess.run(
         [sys.executable, "-c", script], env=env, capture_output=True, text=True,
@@ -175,3 +175,22 @@ def test_production_reads_the_hop_count_and_the_cookie_flag_from_the_environment
         {"TRUSTED_PROXY_HOPS": "3", "LOG_PROXY_CHAIN": "true", "REFRESH_COOKIE_SECURE": "false"},
     )
     assert got == {"TRUSTED_PROXY_HOPS": 3, "LOG_PROXY_CHAIN": True, "REFRESH_COOKIE_SECURE": False}
+
+
+# ─── database pool ────────────────────────────────────────────────────────────
+
+_POOL_KEYS = ("SQLALCHEMY_ENGINE_OPTIONS",)
+
+
+def test_the_database_pool_defaults():
+    options = _read_settings("production", {}, _POOL_KEYS)["SQLALCHEMY_ENGINE_OPTIONS"]
+
+    assert (options["pool_size"], options["max_overflow"], options["pool_timeout"]) == (5, 10, 30)
+
+
+def test_the_database_pool_comes_from_the_environment():
+    env = {"DB_POOL_SIZE": "7", "DB_MAX_OVERFLOW": "3", "DB_POOL_TIMEOUT": "11"}
+
+    options = _read_settings("production", env, _POOL_KEYS)["SQLALCHEMY_ENGINE_OPTIONS"]
+
+    assert (options["pool_size"], options["max_overflow"], options["pool_timeout"]) == (7, 3, 11)
