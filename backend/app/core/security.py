@@ -69,7 +69,8 @@ class AuthError(Exception):
     """
     Raised when a token cannot be trusted.
 
-    code is EXPIRED_TOKEN or INVALID_TOKEN so callers can tell the two apart.
+    code is TOKEN_EXPIRED (access token), REFRESH_EXPIRED (refresh token) or
+    INVALID_TOKEN so callers can tell them apart.
     """
 
     def __init__(
@@ -137,9 +138,9 @@ def decode_access_token(token: str) -> dict[str, Any]:
     """
     Decode and validate an access token.
 
-    Raises AuthError with code="EXPIRED_TOKEN" for expired tokens and
+    Raises AuthError with code="TOKEN_EXPIRED" for expired tokens and
     code="INVALID_TOKEN" for tokens that fail signature/structure validation.
-    Front-ends should treat EXPIRED_TOKEN as a cue to refresh, and
+    Front-ends should treat TOKEN_EXPIRED as a cue to refresh, and
     INVALID_TOKEN as a cue to log out immediately.
 
     Args:
@@ -155,7 +156,7 @@ def decode_access_token(token: str) -> dict[str, Any]:
     try:
         payload = jwt.decode(token, secret, algorithms=[_ALGORITHM])
     except jwt.ExpiredSignatureError:
-        raise AuthError("Access token has expired.", code="EXPIRED_TOKEN", status=401)
+        raise AuthError("Access token has expired.", code="TOKEN_EXPIRED", status=401)
     except jwt.InvalidTokenError as exc:
         raise AuthError(f"Invalid token: {exc}", code="INVALID_TOKEN", status=401)
 
@@ -173,13 +174,14 @@ def decode_refresh_token(token: str) -> dict[str, Any]:
     """
     Decode and validate a refresh token.
 
-    Same EXPIRED_TOKEN / INVALID_TOKEN split as decode_access_token.
+    Same split as decode_access_token, but an expired token is REFRESH_EXPIRED:
+    the session is over and the front-end must send the user to the login page.
     """
     secret = current_app.config["SECRET_KEY"]
     try:
         payload = jwt.decode(token, secret, algorithms=[_ALGORITHM])
     except jwt.ExpiredSignatureError:
-        raise AuthError("Refresh token has expired.", code="EXPIRED_TOKEN", status=401)
+        raise AuthError("Refresh token has expired.", code="REFRESH_EXPIRED", status=401)
     except jwt.InvalidTokenError as exc:
         raise AuthError(f"Invalid refresh token: {exc}", code="INVALID_TOKEN", status=401)
 

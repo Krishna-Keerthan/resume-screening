@@ -342,3 +342,53 @@ def test_change_password_reuses_the_loaded_account(client, account, headers_for,
 
     assert r.status_code == 200, r.get_json()
     assert spy.call_count == 1
+
+
+# ─── Error codes the frontend acts on ─────────────────────────────────────────
+
+def _expired_tokens(app, monkeypatch, user, role):
+    monkeypatch.setitem(app.config, "JWT_ACCESS_TTL_MINUTES", -1)
+    monkeypatch.setitem(app.config, "JWT_REFRESH_TTL_DAYS", -1)
+    from app.core.security import create_tokens
+    with app.app_context():
+        access, refresh, _ = create_tokens(user.id, role)
+    return access, refresh
+
+
+def test_an_expired_access_token_is_reported_as_token_expired(
+    app, client, candidate_a, monkeypatch
+):
+    access, _ = _expired_tokens(app, monkeypatch, candidate_a, "candidate")
+
+    r = client.get(f"{BASE}/me", headers={"Authorization": f"Bearer {access}"})
+
+    assert r.status_code == 401
+    assert r.get_json()["error"]["error_code"] == "TOKEN_EXPIRED"
+
+
+def test_an_expired_refresh_cookie_is_reported_as_refresh_expired_and_cleared(
+    app, client, candidate_a, monkeypatch
+):
+    _, refresh = _expired_tokens(app, monkeypatch, candidate_a, "candidate")
+
+    r = client.post(f"{BASE}/refresh", headers=_cookie_header(refresh))
+
+    assert r.status_code == 401
+    assert r.get_json()["error"]["error_code"] == "REFRESH_EXPIRED"
+    assert _cleared(r)
+
+
+@pytest.mark.parametrize("state", _DEAD_STATES)
+@pytest.mark.parametrize("account", ["candidate", "recruiter"], indirect=True)
+def test_a_dead_accounts_token_is_rejected_with_invalid_token_on_logout(
+    client, account, state, account_password, headers_for
+):
+    """The frontend treats this code as 'session already over' and logs out locally."""
+    user, _ = account
+    headers = headers_for(user)
+    _kill(user, state)
+
+    r = client.post(f"{BASE}/logout", headers=headers)
+
+    assert r.status_code == 401
+    assert r.get_json()["error"]["error_code"] == "INVALID_TOKEN"

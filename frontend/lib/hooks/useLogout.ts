@@ -9,6 +9,8 @@ import { toast } from "sonner";
 // Clears local state + calls backend to revoke the refresh token.
 // ─────────────────────────────────────────────────────────────────────────────
 
+const SESSION_ALREADY_OVER = new Set(["MISSING_TOKEN", "TOKEN_EXPIRED", "INVALID_TOKEN"]);
+
 export function useLogout() {
   const router = useRouter();
   const { logout: clearStore } = useAuthStore();
@@ -24,9 +26,10 @@ export function useLogout() {
     try {
       await api.authLogout();
     } catch (err) {
-      // Even if the backend call fails (e.g. already expired), clear locally
+      // Even if the backend call fails, clear locally. These codes mean the
+      // session is already over (no token, expired, or the account is gone).
       const code = err instanceof ApiError ? err.code : "";
-      if (code !== "MISSING_TOKEN" && code !== "TOKEN_EXPIRED") {
+      if (!SESSION_ALREADY_OVER.has(code)) {
         toast.error("Logout error — cleared locally.");
       }
     } finally {
