@@ -315,6 +315,26 @@ def _register_blueprints(app: Flask) -> None:
     logger.debug("Blueprints registered.", extra={"prefix": "/api/v1"})
 
 
+def _require_embedding_model(app: Flask) -> None:
+    """
+    With EMBEDDING_OFFLINE=true the model must already be in the cache (it is downloaded when
+    the app is built). If it is not, refuse to start: running anyway would silently drop the
+    semantic part of every score. Online (development) it is fetched on first run, and
+    /health/services reports semantic_search false if that fails.
+    """
+    if not app.config["EMBEDDING_OFFLINE"]:
+        return
+    services = app.extensions.get("services")
+    if services is not None and services.embedding.available:
+        return
+    raise RuntimeError(
+        f"EMBEDDING_OFFLINE=true but the embedding model {app.config['EMBEDDING_MODEL']} could not "
+        f"be loaded from {app.config['EMBEDDING_CACHE_DIR']}. The model is downloaded when the app "
+        "is built (python -m scripts.download_model); without it every score would silently lose "
+        "its semantic component."
+    )
+
+
 def _validate_config(app: Flask) -> None:
     """
     Validate critical configuration at startup.
@@ -372,6 +392,9 @@ def _validate_config(app: Flask) -> None:
     # silently write uploads somewhere else.
     from app.services.storage_service import StorageService
     StorageService.from_config(app.config)
+
+    # ── Embedding model ───────────────────────────────────────────────────────
+    _require_embedding_model(app)
 
     # ── Groq API key and time budget ──────────────────────────────────────────
     if not app.config.get("GROQ_API_KEY"):

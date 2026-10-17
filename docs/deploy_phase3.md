@@ -180,17 +180,31 @@ with the instance limit; RSS counts shared pages in every process.
   traffic). This was not measured on Render itself.
 - **Production therefore runs one worker** (`WORKERS` defaults to 1 there, and
   `render.yaml` does not set it). Raise it only on an instance with more memory.
-- The embedding model (~90 MB) is downloaded when the app is built, not at cold start:
-  Render's `buildCommand` ends with `python -m scripts.download_model`, and the
-  Dockerfile runs it in its own layer (the image grew from 2.48 GB to 2.66 GB). The
-  runtime then sets `EMBEDDING_OFFLINE=true` (Dockerfile `ENV`, `render.yaml`) so the
-  model loads from the local cache only. Without that, `huggingface_hub` still asks
-  huggingface.co about each cached file and, with no network, retries each request for
-  about 20 s, so a boot took minutes. With it, a container with `--network none`
-  became healthy in 14 s and scored a résumé. **Not verified on Render:** that files
-  written under `backend/.cache/` by the build command are still there when the
-  service starts. If `scored` shows `semantic_available: false`, or the log says the
-  model failed to load, that is the first thing to check.
+- The embedding model (~90 MB) is downloaded when the app is built, by one script,
+  `python -m scripts.download_model` (`backend/scripts/download_model.py`), which both
+  Render's `buildCommand` and the Dockerfile run. Nothing else names the model or the
+  cache path. The path is the `EMBEDDING_CACHE_DIR` setting, an absolute path that
+  defaults to `backend/.cache/embeddings` (a relative value is relative to `backend/`,
+  not to the working directory), and the running app reads the same setting. The script
+  refuses a path outside `backend/`, because on Render only the project directory
+  (`/opt/render/project`) is carried from the build to the running service. After
+  downloading it loads the model again from the cache with `local_files_only=True` and
+  encodes one string, so an incomplete cache fails the build rather than the first start.
+- The runtime sets `EMBEDDING_OFFLINE=true` (Dockerfile `ENV`, `render.yaml`) so the model
+  loads from the local cache only. Without that, `huggingface_hub` still asks huggingface.co
+  about each cached file and, with no network, retries each request for about 20 s, so a
+  boot took minutes. With it, a container with `--network none` became healthy in 14 s.
+- **If the model is missing, the app does not start.** With `EMBEDDING_OFFLINE=true` and
+  no loadable model, startup raises an error naming the model, the cache path and
+  `python -m scripts.download_model`; a deploy fails loudly instead of scoring without
+  its 40 % semantic component. Online (development) the model is fetched on first run and
+  `/health/services` reports `semantic_search: false` if that fails.
+- Checked by simulating Render: build in one directory with one `HOME`, then run from `/`
+  with an empty `HOME`, no network and `EMBEDDING_OFFLINE=true`. The model loaded from the
+  same path. The build wrote 15 files (88 MB) under `<project>/.cache/embeddings` and one
+  downloader log under `HOME`, which the runtime does not need. **Not verified on
+  Render itself:** that the build's files really are in the running service, which is the
+  first thing to check if the app refuses to start with the message above.
 
 ### Reading real memory on the first deploy
 
