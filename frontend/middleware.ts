@@ -4,7 +4,10 @@ import { NextRequest, NextResponse } from "next/server";
 // Strategy:
 //   - The access token lives in memory (JS), so middleware can't read it.
 //   - The refresh token lives in an HttpOnly cookie named "refresh_token",
-//     which IS readable by middleware on the server.
+//     which IS readable by middleware on the server. It is a first-party
+//     cookie: the backend sets it through the /api/v1 rewrite in next.config.js
+//     with Path=/ and no Domain, so it comes back on every page request. Keep
+//     the name in sync with REFRESH_COOKIE_NAME in backend/app/core/cookies.py.
 //   - We use the presence of the refresh cookie as a lightweight "logged in"
 //     signal to decide whether to redirect to /login.
 //   - The real auth enforcement is done by the backend (Bearer token required).

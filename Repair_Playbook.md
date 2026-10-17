@@ -121,6 +121,7 @@ Pick ONE cookie strategy before prompting:
 - GitHub Actions CI: backend tests, frontend typecheck and build on every push
 - Health check endpoint and structured logging
 - Clean up: dead code (response schemas, utils/pagination.py, validators.py, unused components), stale README, seed script password and seed_report.md
+- Close the direct-backend bypass: Vercel adds a shared-secret header to proxied requests and the backend rejects (or ignores X-Forwarded-For from) requests without it. Today anyone calling the *.onrender.com address directly skips Vercel and, with two trusted hops, chooses their own rate-limit key (see docs/deploy_phase3.md).
 
 ---
 

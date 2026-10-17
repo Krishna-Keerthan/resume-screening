@@ -8,8 +8,8 @@ Next.js 14 frontend for the AI Resume Intelligence Platform.
 # 1. Install dependencies
 npm install
 
-# 2. Configure backend URL (edit .env.local)
-NEXT_PUBLIC_API_URL=http://localhost:5000   # ← point to your Flask backend
+# 2. Point the dev proxy at your Flask backend (copy .env.example to .env.local)
+API_PROXY_TARGET=http://localhost:5000
 
 # 3. Run development server
 npm run dev
@@ -67,8 +67,7 @@ components/
 
 | Variable | Default | Description |
 |---|---|---|
-| `NEXT_PUBLIC_API_URL` | `http://localhost:5000` | Flask backend origin as the browser reaches it, **without** `/api/v1` (the client adds it once) |
-| `INTERNAL_API_URL` | `http://ats_flask:5000` | Same, as the Next.js server reaches it (server-side rendering); falls back to `NEXT_PUBLIC_API_URL` |
+| `API_PROXY_TARGET` | `http://localhost:5000` (dev only) | Backend origin **without** `/api/v1`. The browser calls `/api/v1/*` on the frontend's own domain and `next.config.js` rewrites it here. Read at **build** time; a production build fails if it is unset. |
 | `NEXT_PUBLIC_AUTH_STORAGE_KEY` | `ats-auth-v1` | localStorage key for auth |
 
 ## Auth Flow

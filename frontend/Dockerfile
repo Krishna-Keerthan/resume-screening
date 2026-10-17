@@ -10,9 +10,10 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Build args for public env vars (baked at build time)
-ARG NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# Backend origin (no /api/v1) that next.config.js rewrites /api/v1/* to.
+# Rewrites are fixed at build time, so this is a build arg. It is required.
+ARG API_PROXY_TARGET
+ENV API_PROXY_TARGET=$API_PROXY_TARGET
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build

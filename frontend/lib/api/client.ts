@@ -153,30 +153,15 @@ export function resetClientState() {
   _refreshing  = null; 
 }
 
-// The configured URL is the backend origin WITHOUT "/api/v1"; the path is added once, below.
-function resolveApiOrigin(): string {
-  const url =
-    typeof window === "undefined"
-      ? process.env.INTERNAL_API_URL ?? process.env.NEXT_PUBLIC_API_URL
-      : process.env.NEXT_PUBLIC_API_URL;
-
-  if (!url) {
-    console.warn(
-      "API base URL is not configured (INTERNAL_API_URL / NEXT_PUBLIC_API_URL); " +
-        "requests will go to this origin's /api/v1."
-    );
-    return "";
-  }
-  return url.replace(/\/+$/, "");
-}
-
-const API_BASE_URL = resolveApiOrigin();
+// Every request goes to this app's own origin; next.config.js rewrites /api/v1/*
+// to the backend (API_PROXY_TARGET), so the refresh cookie stays first-party.
+const API_BASE_PATH = "/api/v1";
 
 const createApiClient = (): AxiosInstance => {
   const client = axios.create({
-    baseURL: `${API_BASE_URL}/api/v1`,
+    baseURL: API_BASE_PATH,
     headers:         { "Content-Type": "application/json" },
-    timeout:          120_000,
+    timeout:          110_000,   // below the 120s proxy limit, so a slow call fails with our own error
     withCredentials:  true,   // ← REQUIRED: sends HttpOnly refresh_token cookie
   });
 
