@@ -221,10 +221,66 @@ RSS counts pages shared with the master in every process, so the worker's figure
 higher than the memory it adds. Compare the master's plus the worker's growth with the
 512 MB limit, and watch Render's own memory graph for the real total.
 
+## Supabase Storage (résumé files)
+
+Résumés are stored in a **private** Supabase Storage bucket. Render's disk is wiped on every
+deploy, so `STORAGE_PROVIDER=supabase` is set in `render.yaml`; local disk is for development only.
+
+### Create the bucket
+
+In the Supabase dashboard (Storage; the exact wording of the screens may differ):
+
+1. Create a bucket, for example `resumes`, with **Public bucket turned off**. Private is Supabase's
+   default; check it anyway.
+2. Optional, but cheap: set the bucket's file size limit to match `MAX_UPLOAD_MB` (10 MB) and the allowed
+   types to `application/pdf` and
+   `application/vnd.openxmlformats-officedocument.wordprocessingml.document`.
+3. **Add no policy** on `storage.objects` for this bucket. A private bucket without a policy cannot be
+   read by the `anon` or `authenticated` roles, which is what we want: the only reader is our server,
+   using the service-role key (it bypasses row-level security), and the only way a browser gets a file
+   is a signed URL from `GET /api/v1/resumes/<id>/download`, after the ownership check.
+4. Never switch the bucket to public later. The app never builds a public URL (a test fails if any
+   code or response does), but a public bucket would make every object readable by anyone who knows
+   its path.
+
+### Where the three values go
+
+Set them in the **Render dashboard** (`render.yaml` lists them with `sync: false`, so Render asks for
+them when the blueprint is created). They are not set in Vercel, not in the frontend, not in a commit.
+
+| Variable | Value |
+|---|---|
+| `SUPABASE_URL` | The project's base URL, `https://<project-ref>.supabase.co`. No path: the app adds `/storage/v1` itself, and refuses to start if you paste a URL with a path. |
+| `SUPABASE_BUCKET` | The bucket's name, for example `resumes`. |
+| `SUPABASE_SERVICE_ROLE_KEY` | A server-side key from Settings, API Keys. Either a new-style secret key (`sb_secret_...`, preferred) or the legacy `service_role` key (a JWT starting `eyJ`). The app sends a secret key in the `apikey` header only and a JWT in both `apikey` and `Authorization`, as Supabase documents. Supabase plans to deprecate the legacy keys by the end of 2026. |
+
+The service-role key bypasses row-level security, so treat it like a database password: it is never
+logged, returned in a response or put in an error message (tests check this for both key kinds), and
+Supabase rejects secret keys used from a browser. To rotate it, change the variable in Render and
+redeploy; nothing else holds a copy.
+
+### What the app checks, and what it does not
+
+At startup the app refuses to start if any of the three values is empty, or if `SUPABASE_URL` is not an
+http(s) URL without a path. It does **not** contact Supabase at startup, so a wrong key, a missing
+bucket or a public bucket is **not** caught there. `scripts/supabase_smoke_test.py` catches them: run it
+once against the real project before the first user (`docs/supabase-smoke-test.md`). It checks that the
+bucket is private, the plain URLs fail, a signed URL works and then expires, and delete removes the
+object.
+
+### Behaviour
+
+- Upload: a random key (`<32 hex>.<pdf|docx>`); the user's filename is never sent to Supabase.
+- Download: the route returns `{ "url": <signed URL>, "expires_in": 300 }` after the ownership check;
+  the URL stops working after `DOWNLOAD_URL_TTL_SECONDS` (300).
+- Delete: removes the object; a failed delete is logged and does not block the database soft-delete.
+- A file that is missing from the bucket is a 404 `FILE_NOT_FOUND`; any other store failure is a 502
+  `STORAGE_UNAVAILABLE` without internals.
+
 ## First deploy, step by step
 
 1. **Accounts and secrets:** a Supabase project with a private bucket (its URL, service-role key and
-   bucket name); a Groq API key
+   bucket name; see "Supabase Storage" above); a Groq API key
    (optional, LLM features are off without it).
 2. **The blueprint is `render.yaml` in the repository root** (where Render looks by
    default). The web service uses `runtime: python` with `rootDir: backend`, so its
@@ -249,4 +305,5 @@ higher than the memory it adds. Compare the master's plus the worker's growth wi
    reload a protected page.
 9. **Verify the proxy hop count** (section above), then turn `LOG_PROXY_CHAIN` off.
 10. **Test the proxy limits** (upload sizes, first request after idle), and run
-    `docs/supabase-smoke-test.md` with real credentials.
+    `docs/supabase-smoke-test.md` with real credentials. Do this before step 8 if you can: it is the
+    only check that the bucket is private and the key works.
