@@ -139,3 +139,39 @@ def test_the_improvement_plan_always_runs_outside_a_budget(clock):
     )
 
     assert client.chat.completions.create.called
+
+
+# ─── the clock ────────────────────────────────────────────────────────────────
+
+def test_the_budget_follows_the_monotonic_clock():
+    import time
+    from unittest.mock import patch
+
+    ticks = iter([500.0, 510.0, 525.0])        # entering the block, then two readings
+
+    with patch.object(time, "monotonic", side_effect=lambda: next(ticks)):
+        with groq_budget(100):
+            assert remaining_budget() == 90.0
+            assert remaining_budget() == 75.0
+
+
+def test_a_wall_clock_that_jumps_back_and_forth_does_not_change_the_budget():
+    import itertools
+    import time
+    from unittest.mock import patch
+
+    # NTP corrections, DST or a VM resume: the wall clock goes back an hour, then forward two.
+    jumps = itertools.cycle([1_800_000_000.0, 1_800_000_000.0 - 3600, 1_800_000_000.0 + 3600])
+
+    with patch.object(time, "time", side_effect=lambda: next(jumps)):
+        with groq_budget(100):
+            first = remaining_budget()
+            second = remaining_budget()
+            third = remaining_budget()
+
+    assert 99.0 < third <= second <= first <= 100.0       # only ever counts down, by real elapsed time
+
+
+def test_the_budget_can_start_before_the_block_is_entered(clock):
+    with groq_budget(100, already_used=40):
+        assert remaining_budget() == 60

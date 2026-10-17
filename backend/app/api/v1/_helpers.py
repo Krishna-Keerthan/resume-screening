@@ -27,6 +27,7 @@ Design:
 """
 
 import logging
+import time
 from functools import wraps
 from typing import Any, Type
 
@@ -238,10 +239,15 @@ def llm_time_budget(view):
     """
     Run a view inside one Groq time budget (GROQ_CALL_BUDGET_SECONDS), shared by every Groq
     call the request makes, so a route that makes several still ends before gunicorn's timeout.
+
+    The budget starts when the request started (g.request_start, set in the middleware), not
+    when the view does: gunicorn's timer counts from the start of the request.
     """
     @wraps(view)
     def wrapper(*args, **kwargs):
-        with groq_budget(current_app.config["GROQ_CALL_BUDGET_SECONDS"]):
+        now = time.perf_counter()
+        used = max(0.0, now - g.get("request_start", now))
+        with groq_budget(current_app.config["GROQ_CALL_BUDGET_SECONDS"], already_used=used):
             return view(*args, **kwargs)
     return wrapper
 

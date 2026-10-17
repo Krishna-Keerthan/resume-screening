@@ -49,13 +49,18 @@ def worst_case_seconds(timeout: float, max_retries: int) -> float:
 # scores with an explanation, then writes an improvement plan); each call is bounded on its
 # own, but together they must still end before gunicorn's timeout. Inside groq_budget() every
 # attempt is capped by the time left and an optional call is skipped when little is left.
-_now = time.monotonic
+def _now() -> float:
+    """Monotonic seconds: unaffected by the wall clock being set, NTP steps or a VM resume."""
+    return time.monotonic()
+
+
 _deadline: ContextVar[float | None] = ContextVar("groq_deadline", default=None)
 
 
 @contextmanager
-def groq_budget(seconds: float):
-    token = _deadline.set(_now() + seconds)
+def groq_budget(seconds: float, already_used: float = 0.0):
+    """Budget `seconds` for the block, counting `already_used` seconds as spent."""
+    token = _deadline.set(_now() + seconds - already_used)
     try:
         yield
     finally:

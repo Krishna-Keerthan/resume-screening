@@ -148,11 +148,17 @@ it, 93 s with the defaults) < axios (110 s, `frontend/lib/api/client.ts`) < guni
 (115 s) < Vercel's proxy (120 s). A test fails if any of them is reordered.
 `POST /applications/` can make two Groq calls in a row (score explanation, then, for
 scores below 0.65, an improvement plan), so it runs inside one shared budget of
-`GROQ_CALL_BUDGET_SECONDS` (100 s): each attempt's timeout is capped by the time left,
+`GROQ_CALL_BUDGET_SECONDS` (100 s) that starts when the request started (not when the view
+starts) and runs on the monotonic clock: each attempt's timeout is capped by the time left,
 retries stop when it is spent, and the improvement plan is skipped when less than
 `GROQ_OPTIONAL_CALL_MIN_SECONDS` (25 s) is left. A skipped plan looks the same to the
 client as a failed one: `improvement_plan` is empty. The other Groq routes make one call
 each, bounded at 93 s.
+The non-Groq part of that request, measured with the real embedding model on local
+Postgres and no Groq key: 353 ms for the first request after boot, a median of 80 ms
+(max 109 ms) for the next seven, about 5 ms of authentication and framework overhead
+before the view. Groq calls end 100 s after the request started, leaving 15 s of the
+115 s for everything else; these numbers are not from Render's slower CPU and database.
 
 ## Memory against Render's 512 MB
 
