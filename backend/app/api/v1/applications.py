@@ -31,6 +31,7 @@ from ._helpers import (
     get_owned_job,
     get_services,
     get_viewable_application,
+    llm_time_budget,
     parse_body,
     parse_query,
     serialize_application,
@@ -98,6 +99,7 @@ def list_applications():
 @applications_bp.post("/")
 @require_auth("candidate")
 @llm_limit
+@llm_time_budget
 def create_application():
     """
     POST /api/v1/applications/

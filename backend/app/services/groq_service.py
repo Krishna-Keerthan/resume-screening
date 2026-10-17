@@ -27,6 +27,8 @@ Usage:
 import json
 import logging
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -41,6 +43,29 @@ def worst_case_seconds(timeout: float, max_retries: int) -> float:
     """Longest one call can take: every attempt times out, plus all the waiting."""
     waiting = sum(backoff_seconds(retry) for retry in range(1, max_retries + 1))
     return (max_retries + 1) * timeout + waiting
+
+
+# A request-wide time budget. One request can make several Groq calls (POST /applications/
+# scores with an explanation, then writes an improvement plan); each call is bounded on its
+# own, but together they must still end before gunicorn's timeout. Inside groq_budget() every
+# attempt is capped by the time left and an optional call is skipped when little is left.
+_now = time.monotonic
+_deadline: ContextVar[float | None] = ContextVar("groq_deadline", default=None)
+
+
+@contextmanager
+def groq_budget(seconds: float):
+    token = _deadline.set(_now() + seconds)
+    try:
+        yield
+    finally:
+        _deadline.reset(token)
+
+
+def remaining_budget() -> float | None:
+    """Seconds left in the current groq_budget(), or None outside one."""
+    deadline = _deadline.get()
+    return None if deadline is None else max(0.0, deadline - _now())
 
 
 
@@ -61,6 +86,7 @@ class GroqService:
         temperature: float = 0.3,
         timeout: int = 30,
         max_retries: int = 2,
+        optional_call_min_seconds: float = 25,
     ):
         self.api_key = api_key
         self.model = model
@@ -68,6 +94,7 @@ class GroqService:
         self.temperature = temperature
         self.timeout = timeout
         self.max_retries = max_retries
+        self.optional_call_min_seconds = optional_call_min_seconds
         self._client: Any = None
         self.available = False
         self._init_client()
@@ -90,41 +117,70 @@ class GroqService:
 
     # ── Core completion ───────────────────────────────────────────────────────
 
-    def _complete(self, system: str, user: str, max_tokens: int | None = None) -> str | None:
+    def _complete(
+        self, system: str, user: str, max_tokens: int | None = None, optional: bool = False,
+    ) -> str | None:
         """
         Send a chat completion request with retry.
+
+        Inside groq_budget() each attempt gets at most the time left, retries stop when it
+        runs out, and an `optional` call is skipped when less than
+        optional_call_min_seconds is left.
 
         Returns:
             Raw model string (may include markdown fences) or None on failure.
         """
-
-
-
         if not self.available or self._client is None:
             return None
-        
-        _max_tokens = max_tokens or self.max_tokens
+        remaining = remaining_budget()
+        if optional and remaining is not None and remaining < self.optional_call_min_seconds:
+            logger.info("Skipping an optional Groq call: %.0f s of the request budget left.", remaining)
+            return None
 
         attempts = self.max_retries + 1
         for attempt in range(1, attempts + 1):
+            timeout = self._attempt_timeout()
+            if timeout is not None and timeout <= 0:
+                logger.warning("Groq time budget spent; not calling.")
+                return None
             try:
-                response = self._client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": system},
-                        {"role": "user",   "content": user},
-                    ],
-                    max_tokens=_max_tokens,
-                    temperature=self.temperature,
-                )
-                return response.choices[0].message.content
+                return self._request(system, user, max_tokens or self.max_tokens, timeout)
             except Exception as exc:
                 logger.warning("Groq attempt %d/%d failed: %s", attempt, attempts, exc)
-                if attempt < attempts:
-                    time.sleep(backoff_seconds(attempt))
+                if attempt < attempts and not self._wait_before_retry(attempt):
+                    break
 
         logger.error("All Groq retries exhausted.")
         return None
+
+    def _attempt_timeout(self) -> float | None:
+        """The time one attempt may take: the timeout, capped by the budget (None: no budget)."""
+        remaining = remaining_budget()
+        return None if remaining is None else min(self.timeout, remaining)
+
+    def _request(self, system: str, user: str, max_tokens: int, timeout: float | None) -> str:
+        options = {} if timeout is None else {"timeout": timeout}
+        response = self._client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user",   "content": user},
+            ],
+            max_tokens=max_tokens,
+            temperature=self.temperature,
+            **options,
+        )
+        return response.choices[0].message.content
+
+    @staticmethod
+    def _wait_before_retry(attempt: int) -> bool:
+        """Back off before the next attempt; False if the budget cannot cover the wait."""
+        delay = backoff_seconds(attempt)
+        remaining = remaining_budget()
+        if remaining is not None and remaining <= delay:
+            return False
+        time.sleep(delay)
+        return True
 
     @staticmethod
     def _parse_json(raw: str | None, fallback: dict) -> dict:
@@ -528,5 +584,5 @@ Return 4-5 relevant job title suggestions with match scores."""
     Create 5 specific, ranked actions to improve their chances for this type of role."""
 
         fallback = {"plan": []}
-        raw = self._complete(self._IMPROVEMENT_COACH_SYSTEM, user_prompt, max_tokens=600)
+        raw = self._complete(self._IMPROVEMENT_COACH_SYSTEM, user_prompt, max_tokens=600, optional=True)
         return self._parse_json(raw, fallback)

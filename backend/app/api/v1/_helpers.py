@@ -27,12 +27,14 @@ Design:
 """
 
 import logging
+from functools import wraps
 from typing import Any, Type
 
 from flask import current_app, g, request
 from marshmallow import Schema, ValidationError
 
 from app.core.responses import error, validation_error
+from app.services.groq_service import groq_budget
 
 logger = logging.getLogger(__name__)
 
@@ -230,6 +232,18 @@ def get_services():
     service instances without importing them directly.
     """
     return current_app.extensions.get("services")
+
+
+def llm_time_budget(view):
+    """
+    Run a view inside one Groq time budget (GROQ_CALL_BUDGET_SECONDS), shared by every Groq
+    call the request makes, so a route that makes several still ends before gunicorn's timeout.
+    """
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        with groq_budget(current_app.config["GROQ_CALL_BUDGET_SECONDS"]):
+            return view(*args, **kwargs)
+    return wrapper
 
 
 # ─────────────────────────────────────────────────────────────────────────────

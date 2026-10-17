@@ -100,6 +100,7 @@ class ServiceFactory:
             temperature=cfg("GROQ_TEMPERATURE", 0.3),
             timeout=cfg("GROQ_TIMEOUT_SECONDS", 30),
             max_retries=cfg("GROQ_MAX_RETRIES", 2),
+            optional_call_min_seconds=cfg("GROQ_OPTIONAL_CALL_MIN_SECONDS", 25),
         )
 
         # ── Storage backend ────────────────────────────────────────────────────

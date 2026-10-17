@@ -167,6 +167,9 @@ class BaseConfig:
     GROQ_MAX_RETRIES:     int   = _int_env("GROQ_MAX_RETRIES", 2)
     # Axios gives up at 110 s and gunicorn at 115 s: one call must end well before.
     GROQ_CALL_BUDGET_SECONDS: int = _int_env("GROQ_CALL_BUDGET_SECONDS", 100)
+    # Inside one request's budget, an optional call (the improvement plan) is skipped when
+    # less than this is left.
+    GROQ_OPTIONAL_CALL_MIN_SECONDS: int = _int_env("GROQ_OPTIONAL_CALL_MIN_SECONDS", 25)
 
     # ── Rate limiting ─────────────────────────────────────────────────────────
     # Per caller: the user id from the access token, else the client IP.

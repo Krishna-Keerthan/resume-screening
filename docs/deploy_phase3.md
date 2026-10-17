@@ -146,9 +146,13 @@ Timeouts, innermost first: one Groq call (`GROQ_CALL_BUDGET_SECONDS`, 100 s; sta
 refuses a `GROQ_TIMEOUT_SECONDS` / `GROQ_MAX_RETRIES` pair whose worst case reaches
 it, 93 s with the defaults) < axios (110 s, `frontend/lib/api/client.ts`) < gunicorn
 (115 s) < Vercel's proxy (120 s). A test fails if any of them is reordered.
-One call is bounded, but one request is not: `POST /applications/` can make two Groq
-calls in a row (score explanation, then the improvement plan), so its worst case is
-above 115 s.
+`POST /applications/` can make two Groq calls in a row (score explanation, then, for
+scores below 0.65, an improvement plan), so it runs inside one shared budget of
+`GROQ_CALL_BUDGET_SECONDS` (100 s): each attempt's timeout is capped by the time left,
+retries stop when it is spent, and the improvement plan is skipped when less than
+`GROQ_OPTIONAL_CALL_MIN_SECONDS` (25 s) is left. A skipped plan looks the same to the
+client as a failed one: `improvement_plan` is empty. The other Groq routes make one call
+each, bounded at 93 s.
 
 ## Memory against Render's 512 MB
 
