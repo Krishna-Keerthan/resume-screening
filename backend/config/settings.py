@@ -6,6 +6,7 @@ Multi-environment configuration module.
 
 import os
 import secrets
+from pathlib import Path
 from typing import List
 
 from dotenv import load_dotenv
@@ -16,6 +17,17 @@ load_dotenv()
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
+# backend/: the project directory. Render carries only this directory from the build to the
+# running service, and the Docker image keeps it at /app.
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+
+def _path_env(key: str, default: str) -> str:
+    """A path setting as an absolute path; a relative one is relative to backend/, not to the cwd."""
+    path = Path(os.getenv(key, default))
+    return str(path if path.is_absolute() else BACKEND_DIR / path)
+
 
 def _list_env(key: str, default: str) -> List[str]:
     return [v.strip() for v in os.getenv(key, default).split(",") if v.strip()]
@@ -130,7 +142,7 @@ class BaseConfig:
 
     # ── Embeddings ────────────────────────────────────────────────────────────
     EMBEDDING_MODEL:     str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-    EMBEDDING_CACHE_DIR: str = os.getenv("EMBEDDING_CACHE_DIR", ".cache/embeddings")
+    EMBEDDING_CACHE_DIR: str = _path_env("EMBEDDING_CACHE_DIR", ".cache/embeddings")
     # Load the model from the local cache only. Set where the model was downloaded at
     # build time (Docker image, Render): otherwise huggingface_hub retries a request per
     # cached file when the network is unreachable. A missing model then fails fast and

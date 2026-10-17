@@ -3,7 +3,7 @@ The .env.example files list every environment variable the code reads, so a new 
 can be configured from them alone.
 
 Backend: every name read through os.getenv or the _int_env / _float_env / _bool_env /
-_list_env helpers in the application, its settings, the gunicorn config and the scripts.
+_list_env / _path_env helpers in the application, its settings, the gunicorn config and the scripts.
 Frontend: every process.env.X in the app (NODE_ENV is set by Next.js itself).
 """
 import os
@@ -14,7 +14,7 @@ import pytest
 _BACKEND = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 _REPO = os.path.dirname(_BACKEND)
 
-_READ = re.compile(r"""(?:os\.getenv|os\.environ\.get|_int_env|_float_env|_bool_env|_list_env)\(\s*["']([A-Z][A-Z0-9_]+)["']""")
+_READ = re.compile(r"""(?:os\.getenv|os\.environ\.get|_int_env|_float_env|_bool_env|_list_env|_path_env)\(\s*["']([A-Z][A-Z0-9_]+)["']""")
 _LISTED = re.compile(r"^\s*#?\s*([A-Z][A-Z0-9_]+)=", re.M)
 _FRONTEND_READ = re.compile(r"process\.env\.([A-Z][A-Z0-9_]+)")
 _SET_BY_NEXT = {"NODE_ENV"}
