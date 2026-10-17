@@ -29,7 +29,9 @@ import httpx
 
 URL = "https://project.supabase.co"
 BUCKET = "resumes"
-SERVICE_KEY = "service-role-key-0123456789-DO-NOT-LEAK"
+# The new-style secret key (not a JWT) and the legacy service_role key (a JWT).
+SERVICE_KEY = "sb_secret_0123456789-DO-NOT-LEAK"
+JWT_SERVICE_KEY = "eyJhbGciOiJIUzI1NiJ9.service-role-0123456789-DO-NOT-LEAK.signature"
 
 
 class Call(NamedTuple):
@@ -104,7 +106,7 @@ class FakeSupabase:
 
         if self.fail_with is not None:
             return self._json(self.fail_with, {"statusCode": str(self.fail_with), "error": "boom", "message": "Internal"})
-        if headers.get("authorization") != f"Bearer {self.service_key}":
+        if self.service_key not in (headers.get("apikey"), (headers.get("authorization") or "").removeprefix("Bearer ")):
             return self._json(401, {"statusCode": "401", "error": "Unauthorized", "message": "Invalid token"})
 
         if request.method == "GET" and path == f"/storage/v1/bucket/{self.bucket}":

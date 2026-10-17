@@ -15,7 +15,7 @@ from app.services.storage_service import (
     StorageService,
     SupabaseStorageBackend,
 )
-from tests.unit.fake_supabase import BUCKET, SERVICE_KEY, URL, FakeSupabase
+from tests.unit.fake_supabase import BUCKET, JWT_SERVICE_KEY, SERVICE_KEY, URL, FakeSupabase
 
 PDF = b"%PDF-1.4 supabase test"
 DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -38,7 +38,6 @@ def test_upload_posts_a_multipart_file_under_a_random_key_without_overwriting(ba
 
     (call,) = fake.calls
     assert (call.method, call.path) == ("POST", f"/storage/v1/object/{BUCKET}/{key}")
-    assert call.headers["authorization"] == f"Bearer {SERVICE_KEY}"
     assert call.headers["apikey"] == SERVICE_KEY
     assert call.headers["x-upsert"] == "false"
     assert call.body == {"filename": key, "content_type": "application/pdf", "bytes": PDF}
@@ -91,7 +90,7 @@ def test_download_is_an_authenticated_get_of_the_object(backend, fake):
 
     (call,) = fake.calls
     assert (call.method, call.path) == ("GET", f"/storage/v1/object/{BUCKET}/{key}")
-    assert call.headers["authorization"] == f"Bearer {SERVICE_KEY}"
+    assert call.headers["apikey"] == SERVICE_KEY
 
 
 def test_a_trailing_slash_on_the_url_makes_no_difference(fake):
@@ -100,6 +99,35 @@ def test_a_trailing_slash_on_the_url_makes_no_difference(fake):
     backend.upload(PDF, "pdf")
 
     assert fake.calls[0].path.startswith(f"/storage/v1/object/{BUCKET}/")
+
+
+# ─── which header carries the key ─────────────────────────────────────────────
+
+def test_a_new_style_secret_key_goes_in_the_apikey_header_only(backend, fake):
+    # Supabase: "Send publishable and secret keys on the apikey header, not on Authorization: Bearer"
+    backend.upload(PDF, "pdf")
+
+    headers = fake.calls[0].headers
+    assert headers["apikey"] == SERVICE_KEY and "authorization" not in headers
+
+
+def test_a_legacy_service_role_jwt_goes_in_both_headers():
+    fake = FakeSupabase(service_key=JWT_SERVICE_KEY)
+    backend = SupabaseStorageBackend(URL, JWT_SERVICE_KEY, BUCKET, transport=fake.transport)
+
+    backend.upload(PDF, "pdf")
+
+    headers = fake.calls[0].headers
+    assert headers["apikey"] == JWT_SERVICE_KEY
+    assert headers["authorization"] == f"Bearer {JWT_SERVICE_KEY}"
+
+
+def test_bucket_is_private_reads_the_bucket_flag(backend, fake):
+    assert backend.bucket_is_private() is True
+    assert fake.calls[-1].method == "GET" and fake.calls[-1].path == f"/storage/v1/bucket/{BUCKET}"
+
+    fake.public = True
+    assert backend.bucket_is_private() is False
 
 
 # ─── errors ───────────────────────────────────────────────────────────────────
@@ -176,6 +204,20 @@ def test_the_key_is_never_logged_returned_or_shown(backend, fake, caplog):
 
     everything = " ".join([caplog.text, repr(backend), str(backend), url, str(raised.value)])
     assert SERVICE_KEY not in everything
+
+
+def test_a_legacy_jwt_key_is_not_logged_or_shown_either(caplog):
+    fake = FakeSupabase(service_key=JWT_SERVICE_KEY)
+    backend = SupabaseStorageBackend(URL, JWT_SERVICE_KEY, BUCKET, transport=fake.transport)
+
+    with caplog.at_level(logging.DEBUG):
+        key = backend.upload(PDF, "pdf").key
+        url = backend.signed_url(key, ttl=300)
+        fake.fail_with = 500
+        with pytest.raises(StorageError) as raised:
+            backend.download_bytes(key)
+
+    assert JWT_SERVICE_KEY not in " ".join([caplog.text, repr(backend), url, str(raised.value)])
 
 
 def test_the_signed_url_is_not_logged(backend, caplog):

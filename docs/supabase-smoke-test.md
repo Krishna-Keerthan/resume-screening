@@ -40,7 +40,10 @@ uploads is deleted whatever happens.
 If a step fails against the real project, look here first; these are the places the tests rest on the
 documented client's behaviour rather than on a real response:
 
-- The headers the Storage API requires. The backend sends `Authorization: Bearer <key>` and `apikey: <key>`.
+- The headers the Storage API requires. The backend always sends `apikey: <key>`, and also
+  `Authorization: Bearer <key>` only when the key is a JWT (the legacy `service_role` key, which starts
+  with `eyJ`). Supabase says new-style secret keys (`sb_secret_...`) are not JWTs and belong in the
+  `apikey` header, not in `Authorization: Bearer`. If either kind is rejected with 401, try the other kind.
 - The shape of the signed-URL response: the backend reads `signedURL` (a path starting with
   `/object/sign/`) and prefixes `<SUPABASE_URL>/storage/v1`.
 - How a missing object is reported: the backend treats HTTP 404, and HTTP 400 with `statusCode` `"404"`,

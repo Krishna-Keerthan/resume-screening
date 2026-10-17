@@ -24,7 +24,7 @@ sys.path.insert(0, os.getcwd())
 
 import httpx  # noqa: E402
 
-from app.services.storage_service import StorageNotFound, SupabaseStorageBackend  # noqa: E402
+from app.services.storage_service import StorageError, StorageNotFound, SupabaseStorageBackend  # noqa: E402
 
 PAYLOAD = b"%PDF-1.4\n% smoke test, safe to delete\n"
 TTL_SECONDS = 5
@@ -36,8 +36,6 @@ def run(config: dict, *, transport=None, sleep=time.sleep, report=print) -> bool
     """Run the checks against the project in `config`; True if every one passed."""
     base = f"{config['SUPABASE_URL'].rstrip('/')}/storage/v1"
     bucket = config["SUPABASE_BUCKET"]
-    auth = {"Authorization": f"Bearer {config['SUPABASE_SERVICE_ROLE_KEY']}",
-            "apikey": config["SUPABASE_SERVICE_ROLE_KEY"]}
     storage = SupabaseStorageBackend(
         config["SUPABASE_URL"], config["SUPABASE_SERVICE_ROLE_KEY"], bucket, transport=transport)
     http = httpx.Client(timeout=30, transport=transport)
@@ -58,9 +56,11 @@ def run(config: dict, *, transport=None, sleep=time.sleep, report=print) -> bool
         report(f"{len(results)}. {'PASS' if ok else 'FAIL'}  {text}")
         return ok
 
-    info = get(f"{base}/bucket/{bucket}", auth)
-    if not step("the bucket exists and is private (public is false)",
-                info is not None and info.status_code == 200 and info.json().get("public") is False):
+    try:
+        private = storage.bucket_is_private()
+    except StorageError:
+        private = False
+    if not step("the bucket exists and is private (public is false)", private):
         return False
 
     key = storage.upload(PAYLOAD, "pdf").key

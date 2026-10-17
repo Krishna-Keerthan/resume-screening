@@ -214,6 +214,10 @@ class SupabaseStorageBackend:
     path in the bucket, a random name. Calls are made with the project's service-role key,
     which bypasses row-level security: it stays on the server, is sent only in request
     headers, and is never logged, returned or put in an error message.
+
+    The key is either a new-style secret key ("sb_secret_..."), which Supabase says to send in
+    the apikey header and not in Authorization: Bearer because it is not a JWT, or the legacy
+    service_role key, a JWT ("eyJ..."), which is sent in both headers.
     """
 
     provider = "supabase"
@@ -222,7 +226,9 @@ class SupabaseStorageBackend:
     def __init__(self, url: str, service_role_key: str, bucket: str, *, transport=None):
         self._base = f"{url.rstrip('/')}/storage/v1"
         self._bucket = quote(bucket, safe="")
-        self._headers = {"Authorization": f"Bearer {service_role_key}", "apikey": service_role_key}
+        self._headers = {"apikey": service_role_key}
+        if service_role_key.startswith("eyJ"):                       # a legacy JWT key
+            self._headers["Authorization"] = f"Bearer {service_role_key}"
         self._transport = transport          # tests pass an httpx.MockTransport
 
     def __repr__(self) -> str:
@@ -260,6 +266,10 @@ class SupabaseStorageBackend:
         if not data:
             raise StorageError("Supabase Storage returned an empty file.")
         return data
+
+    def bucket_is_private(self) -> bool:
+        """True if Supabase reports the bucket as not public. Used by the smoke test."""
+        return self._send("GET", f"/bucket/{self._bucket}").json().get("public") is False
 
     def delete(self, key: str) -> None:
         """Delete the object; best-effort, a failure is logged and never raised."""
