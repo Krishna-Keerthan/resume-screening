@@ -99,6 +99,8 @@ Pick ONE cookie strategy before prompting:
 **Prompt 4:**
 > Stop overwriting recruiter input: keep the recruiter's skills and description as the source of truth; store parsed skills and the AI rewrite as suggestions the recruiter can accept. Make Groq failures report failure (llm_enhanced=False, no fake summary). Fix double-encoded JSON storage and normalise contact_info to always be a dict, with a data migration for existing rows.
 
+**Carried over from Phase 3 (`POST /applications/`):** the response gives the same empty `improvement_plan` when the plan was skipped (too little of the shared Groq time budget was left), when the Groq call failed, and when no plan was needed (score at or above the "good" threshold). The client must be able to tell skipped, failed and not-needed apart, for example a status field on the response with `ready | skipped | failed | not_needed`, kept consistent with an honest `llm_enhanced`.
+
 ---
 
 ## Phase 5 — Frontend ↔ backend contract (1–1½ days)
