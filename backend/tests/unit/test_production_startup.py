@@ -38,7 +38,7 @@ print(json.dumps({"create_all_calls": len(calls)}))
 """
 
 
-def _run(env_name, database_file, extra_env=None):
+def _run(env_name, database_file, extra_env=None, script=_SCRIPT):
     env = {
         **os.environ,
         "APP_ENV": env_name,
@@ -48,7 +48,7 @@ def _run(env_name, database_file, extra_env=None):
         **(extra_env or {}),
     }
     return subprocess.run(
-        [sys.executable, "-c", _SCRIPT, env_name],
+        [sys.executable, "-c", script, env_name],
         env=env, capture_output=True, text=True, cwd=_BACKEND_DIR,
     )
 
