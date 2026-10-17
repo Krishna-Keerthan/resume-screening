@@ -11,7 +11,7 @@ services:
     name: ats-backend
     runtime: python
     rootDir: backend
-    buildCommand: pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
+    buildCommand: pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt && python -m scripts.download_model
     startCommand: alembic upgrade head && gunicorn -c gunicorn.conf.py wsgi:app
     envVars:
       - key: PYTHON_VERSION
@@ -29,6 +29,9 @@ services:
           type: keyvalue
           name: ats-ratelimit
           property: connectionString   # production refuses memory://
+      # The build command downloads the model; load it from there, never from the network.
+      - key: EMBEDDING_OFFLINE
+        value: "true"
       - key: TRUSTED_PROXY_HOPS
         value: "2"   # Vercel, then Render's proxy; verify with LOG_PROXY_CHAIN
       - key: LOG_PROXY_CHAIN

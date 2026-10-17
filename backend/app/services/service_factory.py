@@ -88,6 +88,7 @@ class ServiceFactory:
             model_name=cfg("EMBEDDING_MODEL", "all-MiniLM-L6-v2"),
             cache_dir=cfg("EMBEDDING_CACHE_DIR", ".cache/embeddings"),
             torch_threads=cfg("TORCH_NUM_THREADS", 1),
+            local_files_only=cfg("EMBEDDING_OFFLINE", False),
         )
         embedding_svc._cache._capacity = cfg("EMBEDDING_CACHE_SIZE", 512)
         embedding_svc._ensure_loaded()

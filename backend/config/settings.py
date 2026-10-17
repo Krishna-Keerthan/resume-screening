@@ -131,6 +131,11 @@ class BaseConfig:
     # ── Embeddings ────────────────────────────────────────────────────────────
     EMBEDDING_MODEL:     str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
     EMBEDDING_CACHE_DIR: str = os.getenv("EMBEDDING_CACHE_DIR", ".cache/embeddings")
+    # Load the model from the local cache only. Set where the model was downloaded at
+    # build time (Docker image, Render): otherwise huggingface_hub retries a request per
+    # cached file when the network is unreachable. A missing model then fails fast and
+    # semantic scoring is reported unavailable.
+    EMBEDDING_OFFLINE:   bool = _bool_env("EMBEDDING_OFFLINE", False)
     # Threads torch (and OpenMP, via gunicorn.conf.py) may use. 1 keeps the preloaded
     # master safe to fork and the memory footprint small.
     TORCH_NUM_THREADS:   int = _int_env("TORCH_NUM_THREADS", 1)

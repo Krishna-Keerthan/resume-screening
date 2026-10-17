@@ -124,10 +124,12 @@ class EmbeddingService:
         cache_dir: str = ".cache/embeddings",
         embed_cache_size: int = _CACHE_CAPACITY,
         torch_threads: int = 1,
+        local_files_only: bool = False,
     ):
         self.model_name = model_name
         self.cache_dir  = cache_dir
         self.torch_threads = torch_threads
+        self.local_files_only = local_files_only
         self._model: Any           = None
         self._model_lock           = threading.Lock()
         self.available             = False
@@ -141,13 +143,17 @@ class EmbeddingService:
         model_name: str = "all-MiniLM-L6-v2",
         cache_dir: str = ".cache/embeddings",
         torch_threads: int = 1,
+        local_files_only: bool = False,
     ) -> "EmbeddingService":
         """Return the shared singleton for this model_name."""
         key = f"{model_name}::{cache_dir}"
         if key not in cls._instances:
             with cls._lock:
                 if key not in cls._instances:
-                    instance = cls(model_name=model_name, cache_dir=cache_dir, torch_threads=torch_threads)
+                    instance = cls(
+                        model_name=model_name, cache_dir=cache_dir,
+                        torch_threads=torch_threads, local_files_only=local_files_only,
+                    )
                     cls._instances[key] = instance
         return cls._instances[key]
 
@@ -168,6 +174,7 @@ class EmbeddingService:
                 self._model = SentenceTransformer(
                     self.model_name,
                     cache_folder=self.cache_dir,
+                    local_files_only=self.local_files_only,
                 )
                 self.available = True
                 logger.info("Embedding model loaded: %s", self.model_name)

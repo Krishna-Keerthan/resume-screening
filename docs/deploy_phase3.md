@@ -170,8 +170,17 @@ with the instance limit; RSS counts shared pages in every process.
   traffic). This was not measured on Render itself.
 - **Production therefore runs one worker** (`WORKERS` defaults to 1 there, and
   `render.yaml` does not set it). Raise it only on an instance with more memory.
-- The embedding model is not in the Docker image (`.dockerignore` excludes `.cache/`),
-  so every cold start downloads about 90 MB from Hugging Face before the app serves.
+- The embedding model (~90 MB) is downloaded when the app is built, not at cold start:
+  Render's `buildCommand` ends with `python -m scripts.download_model`, and the
+  Dockerfile runs it in its own layer (the image grew from 2.48 GB to 2.66 GB). The
+  runtime then sets `EMBEDDING_OFFLINE=true` (Dockerfile `ENV`, `render.yaml`) so the
+  model loads from the local cache only. Without that, `huggingface_hub` still asks
+  huggingface.co about each cached file and, with no network, retries each request for
+  about 20 s, so a boot took minutes. With it, a container with `--network none`
+  became healthy in 14 s and scored a résumé. **Not verified on Render:** that files
+  written under `backend/.cache/` by the build command are still there when the
+  service starts. If `scored` shows `semantic_available: false`, or the log says the
+  model failed to load, that is the first thing to check.
 
 ### Reading real memory on the first deploy
 
