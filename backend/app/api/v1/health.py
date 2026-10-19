@@ -97,10 +97,8 @@ def readiness():
 
 
 def _storage_reachable() -> bool:
-    svcs = current_app.extensions.get("services")
-    storage = getattr(svcs, "storage", None)
     try:
-        return bool(storage and storage.is_reachable())
+        return current_app.extensions["storage_probe"]()
     except Exception:
         logger.error("Readiness: storage check failed", exc_info=True)
         return False

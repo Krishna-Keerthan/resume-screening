@@ -135,6 +135,8 @@ class BaseConfig:
     MAX_PARSED_TEXT_CHARS: int = _int_env("MAX_PARSED_TEXT_CHARS", 200_000)
     PARSE_CONCURRENCY: int = _int_env("PARSE_CONCURRENCY", 2)
     DOWNLOAD_URL_TTL_SECONDS: int = _int_env("DOWNLOAD_URL_TTL_SECONDS", 300)
+    # /health/ready reuses its storage answer for this long, so probes do not each call Supabase.
+    STORAGE_HEALTH_CACHE_SECONDS: int = _int_env("STORAGE_HEALTH_CACHE_SECONDS", 30)
     ALLOWED_EXTENSIONS: set = set(_list_env("ALLOWED_EXTENSIONS", "pdf,docx"))
 
     # ── File storage (StorageService.from_config) ─────────────────────────────
@@ -282,6 +284,7 @@ class TestingConfig(BaseConfig):
     LOG_LEVEL:               str  = "ERROR"
     SECRET_KEY:              str  = "test-secret-key-not-for-production"
     TRUSTED_PROXY_HOPS:      int  = 2
+    STORAGE_HEALTH_CACHE_SECONDS: int = 0   # tests swap the storage backend per test
     # Limiter runs for real, but nothing trips it unless a test lowers a limit.
     RATE_LIMIT_DEFAULT:        str = "1000000 per minute"
     RATE_LIMIT_LOGIN_IP:       str = "1000000 per minute"

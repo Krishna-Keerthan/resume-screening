@@ -180,3 +180,33 @@ class TestLivenessHasNoDependencies:
         with patch.object(db.session, "execute", side_effect=RuntimeError("database down")):
             assert client.get("/api/v1/health/ready").status_code == 503
 
+
+class TestReadinessStorageIsCached:
+    @pytest.fixture()
+    def wired(self, app, monkeypatch):
+        from app.utils.cached_probe import CachedProbe
+
+        fake = FakeSupabase()
+        backend = SupabaseStorageBackend(URL, SERVICE_KEY, BUCKET, transport=fake.transport)
+        now = [100.0]
+        probe = CachedProbe(backend.is_reachable, ttl_seconds=30, clock=lambda: now[0])
+        monkeypatch.setitem(app.extensions, "storage_probe", probe)
+        return fake, now
+
+    def test_repeated_probes_call_supabase_once_per_ttl(self, client, wired):
+        fake, now = wired
+
+        for _ in range(5):
+            assert client.get("/api/v1/health/ready").get_json()["data"]["checks"]["storage"] == {"reachable": True}
+        assert len(fake.calls) == 1
+
+        now[0] += 31
+        client.get("/api/v1/health/ready")
+        assert len(fake.calls) == 2
+
+    def test_the_cache_ttl_is_a_setting_that_defaults_to_30_seconds_outside_tests(self, app):
+        from config.settings import DevelopmentConfig, ProductionConfig, TestingConfig
+
+        assert DevelopmentConfig.STORAGE_HEALTH_CACHE_SECONDS == 30
+        assert ProductionConfig.STORAGE_HEALTH_CACHE_SECONDS == 30
+        assert TestingConfig.STORAGE_HEALTH_CACHE_SECONDS == 0     # tests swap storage per test

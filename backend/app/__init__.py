@@ -43,6 +43,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.core.logging import configure_logging
 from app.core.process_memory import log_rss
+from app.utils.cached_probe import CachedProbe
 from config import get_config
 
 logger = logging.getLogger(__name__)
@@ -192,6 +193,15 @@ def _init_services(app: Flask) -> None:
             exc_info=True,
         )
         app.extensions["services"] = None
+
+    app.extensions["storage_probe"] = CachedProbe(
+        lambda: _storage_is_reachable(app), app.config["STORAGE_HEALTH_CACHE_SECONDS"],
+    )
+
+
+def _storage_is_reachable(app: Flask) -> bool:
+    storage = getattr(app.extensions.get("services"), "storage", None)
+    return bool(storage and storage.is_reachable())
 
 
 def _register_error_handlers(app: Flask) -> None:
