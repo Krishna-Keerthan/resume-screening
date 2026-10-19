@@ -5,9 +5,9 @@ Read CLAUDE.md first. Never print or log a connection string or key; local crede
 
 ## Facts checked against vendor docs (Oct 2026)
 Supabase connections
-- Direct connections use IPv6 by default. Pooler session mode (port 5432, user `postgres.<project-ref>`) works over IPv4 and IPv6 and is the recommended mode for persistent backends.
+- Direct connections use IPv6 by default. The shared pooler is IPv4-only on every plan, in both session and transaction mode (current docs). Session mode (port 5432, user `postgres.<project-ref>`) is the one for persistent backends. Render connecting over IPv4 through it is fine.
 - Transaction mode (port 6543) does not support prepared statements. This app must not use it.
-- Supabase's table lists the direct connection for migrations. Unverified: whether Render can make outbound IPv6 connections; whether Alembic works through the session pooler.
+- Supabase's table lists the direct connection for migrations. Not needed with the IPv4 pooler: whether Render can make outbound IPv6 connections. Unverified: whether Alembic works through the session pooler.
 Supabase Data API
 - The public schema is exposed through a generated REST API. On existing projects, new tables there get grants for anon, authenticated and service_role by default. RLS is on by default only for tables created in the Dashboard Table Editor; Alembic-created tables do not get it.
 - Supabase states the REST endpoints do not respond when the Data API is disabled, whatever the grants or RLS say. Unverified: whether disabling it affects the Storage API; whether the role our app connects with bypasses RLS (do not enable RLS before testing this).
