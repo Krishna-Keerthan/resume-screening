@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.services.storage_service import SupabaseStorageBackend
-from tests.unit.fake_supabase import BUCKET, SERVICE_KEY, URL, FakeSupabase
+from tests.unit.fake_supabase import BUCKET, ROTATED_KEY, SERVICE_KEY, URL, FakeSupabase
 
 
 class TestLiveness:
@@ -128,7 +128,7 @@ class TestReadinessStorage:
         assert body["data"]["checks"]["storage"] == {"reachable": True}
 
     def test_a_wrong_key_is_reported_false_without_failing_readiness(self, client, supabase):
-        supabase.service_key = "sb_secret_rotated"
+        supabase.service_key = ROTATED_KEY
 
         resp, body = self._ready(client)
 
@@ -143,11 +143,11 @@ class TestReadinessStorage:
         assert body["data"]["checks"]["storage"] == {"reachable": False}
 
     def test_the_response_names_no_url_bucket_or_key(self, client, supabase):
-        supabase.service_key = "sb_secret_rotated"
+        supabase.service_key = ROTATED_KEY
 
         text = client.get("/api/v1/health/ready").get_data(as_text=True)
 
-        for secret in (URL, "supabase.co", BUCKET, SERVICE_KEY, "sb_secret"):
+        for secret in (URL, "supabase.co", BUCKET, SERVICE_KEY, SERVICE_KEY[:9]):
             assert secret not in text
 
 

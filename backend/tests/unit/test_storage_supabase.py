@@ -16,7 +16,7 @@ from app.services.storage_service import (
     StorageService,
     SupabaseStorageBackend,
 )
-from tests.unit.fake_supabase import BUCKET, JWT_SERVICE_KEY, SERVICE_KEY, URL, FakeSupabase
+from tests.unit.fake_supabase import BUCKET, JWT_SERVICE_KEY, SERVICE_KEY, URL, WRONG_KEY, FakeSupabase
 
 PDF = b"%PDF-1.4 supabase test"
 DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -339,7 +339,7 @@ def test_is_reachable_asks_for_the_bucket_and_nothing_else(backend, fake):
 
 
 def test_is_reachable_is_false_for_a_wrong_key(fake):
-    wrong = SupabaseStorageBackend(URL, "sb_secret_wrong", BUCKET, transport=fake.transport)
+    wrong = SupabaseStorageBackend(URL, WRONG_KEY, BUCKET, transport=fake.transport)
 
     assert wrong.is_reachable() is False
 
