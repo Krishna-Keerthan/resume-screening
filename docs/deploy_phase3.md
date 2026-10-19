@@ -125,6 +125,30 @@ Postgres is a Supabase project, not a Render database; `render.yaml` declares no
 - **Pool:** production defaults to `DB_POOL_SIZE=3`, `DB_MAX_OVERFLOW=2`, with
   `pool_pre_ping` on; one worker.
 
+## Data API exposure (Supabase)
+
+The app talks to Postgres directly and never through Supabase's generated REST API (the Data
+API), so that API should be off. It is reachable with the project's public `anon` key
+otherwise, and Alembic-created tables are not row-level-secured.
+
+1. **Disable it:** Dashboard → Integrations → Data API → turn **Enable Data API** off.
+   (Supabase's docs: the generated REST endpoints then "do not respond, regardless of grants
+   or RLS".) The docs do not say whether direct Postgres connections (which the app uses) are
+   affected; after disabling, confirm the app still connects.
+2. **What the docs do not say** (so test on the throwaway project, then again after
+   disabling): whether turning it off affects the **Storage API** the app uses for résumés.
+   Run `docs/supabase-smoke-test.md` before and after; do not disable it on the real project
+   until the second run passes.
+3. **Row-level security: do not enable it yet.** In Postgres a table's owner bypasses RLS
+   unless `FORCE ROW LEVEL SECURITY` is set, and Supabase's `postgres` role has `BYPASSRLS`;
+   the pooler user `postgres.<ref>` is that role. That is Postgres' documented behaviour and
+   has **not** been tested on a Supabase project here. Enabling RLS with no policies on a role
+   that does not bypass it would lock the app out of its own tables. Test first: on the
+   throwaway project enable RLS on one table and read it through the pooler.
+4. **Defence in depth (not done, needs a decision):** a migration that revokes privileges on
+   the app's tables from `anon` and `authenticated`. It changes the database's grants, so it
+   is not added without approval.
+
 ## Health checks
 
 `render.yaml` sets `healthCheckPath: /api/v1/health`. That endpoint (`liveness()` in
@@ -134,6 +158,10 @@ because Render stops routing traffic to a running service after 15 s of failed c
 restarts it after 60 s: a Supabase pause or blip must not do that. `/api/v1/health/ready`
 (database, services, storage) and `/api/v1/health/services` stay out of Render's path; use
 them by hand or from an uptime monitor.
+
+`/health/ready` reuses its storage answer for `STORAGE_HEALTH_CACHE_SECONDS` (default 30,
+measured with `time.monotonic`), so frequent probes do not each call Supabase. A storage failure
+is therefore reported for up to that long after it ends.
 
 A health check path set in the Render dashboard is not overwritten by the blueprint and can
 shadow it. After creating the service, open Settings → Health Check Path and confirm it reads
