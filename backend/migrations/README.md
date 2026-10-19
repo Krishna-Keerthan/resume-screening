@@ -1,7 +1,8 @@
 # Database migrations (Alembic)
 
 Run every command from `backend/`. The database URL comes from the app config,
-so set `DATABASE_URL` (and `APP_ENV`, plus `SECRET_KEY` when `APP_ENV=production`).
+so set `DATABASE_URL` (and `APP_ENV`, plus `SECRET_KEY` when `APP_ENV=production`). With `APP_ENV=production` against a
+Postgres without SSL (a local container), also set `DB_SSLMODE=disable`: production defaults to `require`.
 
 ```bash
 alembic upgrade head        # apply all migrations

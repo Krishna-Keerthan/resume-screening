@@ -116,8 +116,8 @@ Postgres is a Supabase project, not a Render database; `render.yaml` declares no
 - **Port 5432 only.** Port 6543 is transaction mode, which has no prepared statements;
   production refuses to start with it and says so.
 - **Why the session pooler:** Supabase says the shared pooler is IPv4-only on every plan,
-  and direct connections are IPv6 on the free plan. Not verified: whether Render can make
-  outbound IPv6 connections, so the pooler is the safe choice either way. Also not
+  and direct connections are IPv6 on the free plan. Render connecting over IPv4 through the
+  pooler is fine, so Render's IPv6 support does not matter. Also not
   verified: that `alembic upgrade head` works through the session pooler (session mode
   supports session state, so it should); the optional integration test checks it.
 - **SSL:** `DB_SSLMODE` defaults to `require` in production (encrypted, the server is not
@@ -133,7 +133,8 @@ per deploy, before the app starts. Production never calls `db.create_all()`
 
 - **First deploy, empty database:** `upgrade head` runs 0001, 0002, 0003, 0004, creates
   every table and `alembic_version` (at `0004`), then gunicorn starts. Nothing else
-  to do. Checked locally against an empty Postgres 16 with `APP_ENV=production`.
+  to do. Checked locally against an empty Postgres 16 with `APP_ENV=production` (a local Postgres
+  without SSL needs `DB_SSLMODE=disable`, since production defaults to `require`).
 - **Later deploys:** nothing to apply means no change; a new migration is applied
   before the new code serves traffic.
 - **A migration fails:** gunicorn does not start and Render keeps the previous
