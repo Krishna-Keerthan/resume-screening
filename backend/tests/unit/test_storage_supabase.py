@@ -7,6 +7,7 @@ The behaviour every backend shares is tested in test_storage_contract.py.
 import logging
 import re
 
+import httpx
 import pytest
 
 from app.services.storage_service import (
@@ -326,3 +327,39 @@ def test_the_factory_returns_the_same_backend_for_the_same_settings():
 
     assert StorageService.from_config(dict(_SETTINGS)) is first
     assert StorageService.from_config({**_SETTINGS, "SUPABASE_BUCKET": "other"}) is not first
+
+
+# ─── reachability ─────────────────────────────────────────────────────────────
+
+def test_is_reachable_asks_for_the_bucket_and_nothing_else(backend, fake):
+    assert backend.is_reachable() is True
+
+    (call,) = fake.calls
+    assert (call.method, call.path) == ("GET", f"/storage/v1/bucket/{BUCKET}")
+
+
+def test_is_reachable_is_false_for_a_wrong_key(fake):
+    wrong = SupabaseStorageBackend(URL, "sb_secret_wrong", BUCKET, transport=fake.transport)
+
+    assert wrong.is_reachable() is False
+
+
+def test_is_reachable_is_false_for_a_missing_bucket(fake):
+    missing = SupabaseStorageBackend(URL, SERVICE_KEY, "no-such-bucket", transport=fake.transport)
+
+    assert missing.is_reachable() is False
+
+
+def test_is_reachable_is_false_when_supabase_errors(backend, fake):
+    fake.fail_with = 503
+
+    assert backend.is_reachable() is False
+
+
+def test_is_reachable_is_false_when_the_network_fails():
+    def refuse(request):
+        raise httpx.ConnectError("secret-host.internal refused")
+
+    backend = SupabaseStorageBackend(URL, SERVICE_KEY, BUCKET, transport=httpx.MockTransport(refuse))
+
+    assert backend.is_reachable() is False

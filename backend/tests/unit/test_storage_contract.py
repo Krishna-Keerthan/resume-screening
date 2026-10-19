@@ -13,6 +13,7 @@ The contract:
   delete(key)         -> removes the object; never raises
   signed_url(key, ttl)-> a URL that stops working after ttl seconds, or None for a backend
                          with no direct URL (the route then serves the bytes itself)
+  is_reachable()      -> True if the store can be used right now, else False; never raises
   provider            -> its name, used only for logging and in the upload response
 """
 import re
@@ -105,3 +106,7 @@ def test_a_signed_url_is_a_string_or_none(backend):
     url = backend.signed_url(backend.upload(PDF, "pdf").key, ttl=300)
 
     assert url is None or (isinstance(url, str) and url.startswith("https://"))
+
+
+def test_a_working_backend_is_reachable(backend):
+    assert backend.is_reachable() is True

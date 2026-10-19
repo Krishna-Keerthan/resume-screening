@@ -1,4 +1,10 @@
 """tests/integration/test_health.py — Health endpoint integration tests."""
+from types import SimpleNamespace
+
+import pytest
+
+from app.services.storage_service import SupabaseStorageBackend
+from tests.unit.fake_supabase import BUCKET, SERVICE_KEY, URL, FakeSupabase
 
 
 class TestLiveness:
@@ -101,3 +107,45 @@ class TestReadinessFailure:
         assert resp.status_code == 503
         assert "hunter2" not in resp.get_data(as_text=True)
         assert resp.get_json()["error"]["details"]["checks"]["database"]["status"] == "error"
+
+
+class TestReadinessStorage:
+    @pytest.fixture()
+    def supabase(self, app, monkeypatch):
+        fake = FakeSupabase()
+        backend = SupabaseStorageBackend(URL, SERVICE_KEY, BUCKET, transport=fake.transport)
+        monkeypatch.setitem(app.extensions, "services", SimpleNamespace(storage=backend))
+        return fake
+
+    def _ready(self, client):
+        resp = client.get("/api/v1/health/ready")
+        return resp, resp.get_json()
+
+    def test_reachable_storage_is_reported_true(self, client, supabase):
+        resp, body = self._ready(client)
+
+        assert resp.status_code == 200
+        assert body["data"]["checks"]["storage"] == {"reachable": True}
+
+    def test_a_wrong_key_is_reported_false_without_failing_readiness(self, client, supabase):
+        supabase.service_key = "sb_secret_rotated"
+
+        resp, body = self._ready(client)
+
+        assert resp.status_code == 200
+        assert body["data"]["checks"]["storage"] == {"reachable": False}
+
+    def test_a_missing_bucket_is_reported_false(self, client, supabase):
+        supabase.bucket = "other-bucket"
+
+        _, body = self._ready(client)
+
+        assert body["data"]["checks"]["storage"] == {"reachable": False}
+
+    def test_the_response_names_no_url_bucket_or_key(self, client, supabase):
+        supabase.service_key = "sb_secret_rotated"
+
+        text = client.get("/api/v1/health/ready").get_data(as_text=True)
+
+        for secret in (URL, "supabase.co", BUCKET, SERVICE_KEY, "sb_secret"):
+            assert secret not in text

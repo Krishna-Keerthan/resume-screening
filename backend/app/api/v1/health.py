@@ -5,7 +5,7 @@ Health and readiness check endpoints.
 
 Routes:
   GET  /health          — liveness probe (always 200 if app is running)
-  GET  /health/ready    — readiness probe (checks DB + services)
+  GET  /health/ready    — readiness probe (checks DB + services, reports storage)
   GET  /health/services — detailed per-service status
 """
 
@@ -49,6 +49,9 @@ def readiness():
     Returns 200 only if:
       - Database connection is healthy
       - Service layer is initialised
+    Also reports whether file storage is reachable, as a bare boolean. That does not
+    change the status code: an outage at the storage provider stops uploads and
+    downloads, not sign-in or browsing, so it must not take the whole API out of rotation.
 
     Returns 503 if any critical dependency is unavailable.
     """
@@ -78,7 +81,9 @@ def readiness():
         checks["services"] = {"status": "error", "detail": "Service layer unavailable."}
         healthy = False
 
-    status_code = 200 if healthy else 503
+    # ── Storage (informational) ───────────────────────────────────────────────
+    checks["storage"] = {"reachable": _storage_reachable()}
+
     return (
         success(data={"status": "ready" if healthy else "not_ready", "checks": checks})
         if healthy
@@ -89,6 +94,16 @@ def readiness():
             details={"checks": checks},
         )
     )
+
+
+def _storage_reachable() -> bool:
+    svcs = current_app.extensions.get("services")
+    storage = getattr(svcs, "storage", None)
+    try:
+        return bool(storage and storage.is_reachable())
+    except Exception:
+        logger.error("Readiness: storage check failed", exc_info=True)
+        return False
 
 
 @health_bp.get("/health/services")

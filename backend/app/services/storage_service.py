@@ -8,6 +8,8 @@ Interface (StorageBackend, every backend):
     upload(file_bytes, ext)  -> StorageResult      stored under a random key
     download_bytes(key)      -> bytes              StorageNotFound if there is no such object
     delete(key)              -> None               never raises
+    is_reachable()           -> bool               True if the store can be used right now; never
+                                                   raises (used by the readiness probe)
     signed_url(key, ttl)     -> str | None         a download URL that stops working after
                                                    ttl seconds, or None when the backend has
                                                    no direct URL (the route then serves the
@@ -66,6 +68,7 @@ class StorageBackend(Protocol):
     def download_bytes(self, key: str) -> bytes: ...
     def delete(self, key: str) -> None: ...
     def signed_url(self, key: str, ttl: int) -> str | None: ...
+    def is_reachable(self) -> bool: ...
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -201,6 +204,13 @@ class LocalStorageBackend:
         """Local files have no URL: the download route streams them after its checks."""
         return None
 
+    def is_reachable(self) -> bool:
+        """True if uploads can be written: the folder, or the nearest existing parent, is writable."""
+        folder = self._root
+        while not folder.exists() and folder != folder.parent:
+            folder = folder.parent
+        return folder.is_dir() and os.access(folder, os.W_OK)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Supabase Storage backend
@@ -229,6 +239,7 @@ class SupabaseStorageBackend:
 
     provider = "supabase"
     _TIMEOUT_SECONDS = 30.0
+    _PROBE_TIMEOUT_SECONDS = 5.0
 
     def __init__(self, url: str, service_role_key: str, bucket: str, *, transport=None):
         self._base = f"{url.rstrip('/')}/storage/v1"
@@ -280,6 +291,14 @@ class SupabaseStorageBackend:
     def bucket_is_private(self) -> bool:
         """True if Supabase reports the bucket as not public. Used by the smoke test."""
         return self._send("GET", f"/bucket/{self._bucket}").json().get("public") is False
+
+    def is_reachable(self) -> bool:
+        """True if Supabase answers for the bucket with this key (right URL, key and bucket)."""
+        try:
+            self._send("GET", f"/bucket/{self._bucket}", timeout=self._PROBE_TIMEOUT_SECONDS)
+        except StorageError:
+            return False
+        return True
 
     def delete(self, key: str) -> None:
         """Delete the object; best-effort, a failure is logged and never raised."""

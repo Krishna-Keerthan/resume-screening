@@ -109,7 +109,9 @@ class FakeSupabase:
         if self.service_key not in (headers.get("apikey"), (headers.get("authorization") or "").removeprefix("Bearer ")):
             return self._json(401, {"statusCode": "401", "error": "Unauthorized", "message": "Invalid token"})
 
-        if request.method == "GET" and path == f"/storage/v1/bucket/{self.bucket}":
+        if request.method == "GET" and path.startswith("/storage/v1/bucket/"):
+            if path != f"/storage/v1/bucket/{self.bucket}":
+                return self._json(404, {"statusCode": "404", "error": "Bucket not found", "message": "Bucket not found"})
             return self._json(200, {"id": self.bucket, "name": self.bucket, "public": self.public})
 
         prefix = "/storage/v1/object/"
