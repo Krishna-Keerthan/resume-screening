@@ -185,7 +185,8 @@ _POOL_KEYS = ("SQLALCHEMY_ENGINE_OPTIONS",)
 def test_the_database_pool_defaults():
     options = _read_settings("production", {}, _POOL_KEYS)["SQLALCHEMY_ENGINE_OPTIONS"]
 
-    assert (options["pool_size"], options["max_overflow"], options["pool_timeout"]) == (5, 10, 30)
+    assert (options["pool_size"], options["max_overflow"], options["pool_timeout"]) == (3, 2, 30)
+    assert options["pool_pre_ping"] is True
 
 
 def test_the_database_pool_comes_from_the_environment():
@@ -194,6 +195,58 @@ def test_the_database_pool_comes_from_the_environment():
     options = _read_settings("production", env, _POOL_KEYS)["SQLALCHEMY_ENGINE_OPTIONS"]
 
     assert (options["pool_size"], options["max_overflow"], options["pool_timeout"]) == (7, 3, 11)
+
+
+POOLER = "postgresql://postgres.abcdefgh:s3cret@aws-0-eu-west-1.pooler.supabase.com:{port}/postgres"
+
+
+def _engine_options(env_name, overrides):
+    return _read_settings(env_name, overrides, _POOL_KEYS)["SQLALCHEMY_ENGINE_OPTIONS"]
+
+
+def test_production_asks_postgres_for_ssl_by_default():
+    assert _engine_options("production", {})["connect_args"] == {"sslmode": "require"}
+
+
+def test_the_ssl_mode_comes_from_the_environment():
+    options = _engine_options("production", {"DB_SSLMODE": "verify-full"})
+
+    assert options["connect_args"] == {"sslmode": "verify-full"}
+
+
+def test_an_empty_ssl_mode_sends_none():
+    assert "connect_args" not in _engine_options("production", {"DB_SSLMODE": ""})
+
+
+def test_no_ssl_mode_is_sent_to_a_non_postgres_database():
+    options = _engine_options("production", {"DATABASE_URL": "sqlite:///x.db"})
+
+    assert "connect_args" not in options
+
+
+def test_development_sends_no_ssl_mode_unless_asked():
+    assert "connect_args" not in _engine_options("development", {})
+    assert _engine_options("development", {"DB_SSLMODE": "prefer"})["connect_args"] == {"sslmode": "prefer"}
+
+
+def test_production_accepts_the_session_pooler_url(monkeypatch):
+    monkeypatch.setenv("SECRET_KEY", "x" * 64)
+    monkeypatch.setenv("DATABASE_URL", POOLER.format(port=5432))
+    monkeypatch.setattr(ProductionConfig, "RATE_LIMIT_STORAGE_URL", "redis://cache:6379/0")
+
+    assert get_config("production").SQLALCHEMY_DATABASE_URI == POOLER.format(port=5432)
+
+
+def test_production_refuses_a_transaction_mode_url(monkeypatch):
+    monkeypatch.setenv("SECRET_KEY", "x" * 64)
+    monkeypatch.setenv("DATABASE_URL", POOLER.format(port=6543))
+    monkeypatch.setattr(ProductionConfig, "RATE_LIMIT_STORAGE_URL", "redis://cache:6379/0")
+
+    with pytest.raises(EnvironmentError, match="transaction mode") as raised:
+        get_config("production").SQLALCHEMY_DATABASE_URI
+
+    assert "s3cret" not in str(raised.value)
+    assert "5432" in str(raised.value)
 
 
 # ─── logging ──────────────────────────────────────────────────────────────────

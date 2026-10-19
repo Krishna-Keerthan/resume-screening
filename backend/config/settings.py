@@ -8,8 +8,11 @@ import os
 import secrets
 from pathlib import Path
 from typing import List
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
+
+_TRANSACTION_POOLER_PORT = 6543   # Supabase transaction mode
 
 load_dotenv()
 
@@ -102,18 +105,23 @@ class BaseConfig:
     DB_POOL_SIZE:    int = _int_env("DB_POOL_SIZE", 5)
     DB_MAX_OVERFLOW: int = _int_env("DB_MAX_OVERFLOW", 10)
     DB_POOL_TIMEOUT: int = _int_env("DB_POOL_TIMEOUT", 30)
+    # libpq sslmode for PostgreSQL connections; empty sends none (the driver's default).
+    DB_SSLMODE:      str = os.getenv("DB_SSLMODE", "")
 
     # A property, so each instance gets its own dict rather than sharing one
     # mutable class-level dict across all subclasses.
     @property
     def SQLALCHEMY_ENGINE_OPTIONS(self) -> dict:  # type: ignore[override]
-        return {
+        options = {
             "pool_pre_ping": True,
             "pool_recycle":  300,
             "pool_size":     self.DB_POOL_SIZE,
             "max_overflow":  self.DB_MAX_OVERFLOW,
             "pool_timeout":  self.DB_POOL_TIMEOUT,
         }
+        if self.DB_SSLMODE and str(self.SQLALCHEMY_DATABASE_URI).startswith("postgresql"):
+            options["connect_args"] = {"sslmode": self.DB_SSLMODE}
+        return options
 
     # ── CORS ──────────────────────────────────────────────────────────────────
     ALLOWED_ORIGINS: List[str] = _list_env("ALLOWED_ORIGINS", "http://localhost:3000")
@@ -224,6 +232,11 @@ class ProductionConfig(BaseConfig):
     # LOG_PROXY_CHAIN line is a WARNING, so ERROR or above hides it.
     LOG_LEVEL:  str  = os.getenv("LOG_LEVEL", "WARNING")
     CREATE_TABLES_ON_STARTUP: bool = False
+    # Few connections: the database sits behind Supabase's session pooler, which caps
+    # clients, and there is one worker. "require" encrypts; it does not verify the server.
+    DB_POOL_SIZE:    int = _int_env("DB_POOL_SIZE", 3)
+    DB_MAX_OVERFLOW: int = _int_env("DB_MAX_OVERFLOW", 2)
+    DB_SSLMODE:      str = os.getenv("DB_SSLMODE", "require")
     # Vercel's proxy, then Render's. Confirm with LOG_PROXY_CHAIN after a deploy.
     TRUSTED_PROXY_HOPS:    int  = _int_env("TRUSTED_PROXY_HOPS", 2)
     REFRESH_COOKIE_SECURE: bool = _bool_env("REFRESH_COOKIE_SECURE", True)
@@ -253,6 +266,11 @@ class ProductionConfig(BaseConfig):
             )
         if uri.startswith("postgres://"):
             uri = uri.replace("postgres://", "postgresql://", 1)
+        if urlsplit(uri).port == _TRANSACTION_POOLER_PORT:
+            raise EnvironmentError(
+                f"DATABASE_URL uses port {_TRANSACTION_POOLER_PORT}, Supabase's transaction mode, which does not "
+                "support prepared statements or session state. Use the session pooler on port 5432."
+            )
         return uri
 
 
