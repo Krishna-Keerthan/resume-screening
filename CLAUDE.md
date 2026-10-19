@@ -4,7 +4,7 @@ AI Resume Screening & Job Recommendation Platform (ATS).
 We are in a **repair phase**: no new features until the audit items are fixed.
 
 ## Stack
-- **Backend** (`backend/`): Flask 3, SQLAlchemy 2, layered as `api/` → `services/` → `repositories/` → `models/`. JWT auth (access token + HttpOnly refresh cookie). Scoring = BM25 + MiniLM embeddings + experience score + section-quality score. Groq (Llama 3.1) for summaries/tips. Cloudinary or local disk for files.
+- **Backend** (`backend/`): Flask 3, SQLAlchemy 2, layered as `api/` → `services/` → `repositories/` → `models/`. JWT auth (access token + HttpOnly refresh cookie). Scoring = BM25 + MiniLM embeddings + experience score + section-quality score. Groq (Llama 3.1) for summaries/tips. Supabase Storage or local disk for files.
 - **Frontend** (`frontend/`): Next.js 16 App Router, TanStack Query, Zustand, Tailwind, Recharts. Separate candidate and recruiter areas.
 - **Infra**: Docker Compose, Render blueprint, Procfile. Alembic for migrations.
 
@@ -40,7 +40,7 @@ We are in a **repair phase**: no new features until the audit items are fixed.
 - JSON columns: use `JSON().with_variant(JSONB, "postgresql")` so tests run on SQLite. Store real dicts/lists, never pre-`json.dumps`-ed strings.
 - Config: read settings from one place (Flask config populated from `config/settings.py`). If you add a setting, it must actually be used.
 - Score thresholds/labels live in **one** config value shared by backend and frontend. Do not hardcode 0.8/0.65/0.5 anywhere else.
-- External calls (Groq, Cloudinary) must report failure honestly. A fallback response must not set `llm_enhanced=True`.
+- External calls (Groq, Supabase Storage) must report failure honestly. A fallback response must not set `llm_enhanced=True`.
 - Frontend types for API responses should be generated from the backend OpenAPI schema, not hand-written.
 
 ## Design rules (SOLID and DRY)
@@ -55,7 +55,7 @@ Size limits (report-only until Phase 4b finishes, then enforced): function at mo
 
 Open/closed
 
-Add behaviour by adding an implementation, not by adding a branch. Storage backends (Cloudinary, local) sit behind one interface and are chosen in exactly one factory. if provider == ... is forbidden outside that factory. The same applies to scorers and any other pluggable part.
+Add behaviour by adding an implementation, not by adding a branch. Storage backends (Supabase, local) sit behind one interface and are chosen in exactly one factory. if provider == ... is forbidden outside that factory. The same applies to scorers and any other pluggable part.
 
 Liskov
 
