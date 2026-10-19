@@ -104,6 +104,27 @@ rather than assume. Render's free tier can need 30 to 60 s to wake from idle.
 - Upload a résumé, redeploy the backend, the file is still downloadable (item 6, not yet done).
 - No tokens or cookies in the Render logs.
 
+## Database on Supabase
+
+Postgres is a Supabase project, not a Render database; `render.yaml` declares none.
+
+- **`DATABASE_URL`** is a `sync: false` secret set in the Render dashboard: the *session
+  pooler* string from Supabase's Connect dialog,
+  `postgresql://postgres.<project-ref>:<password>@<pooler-host>:5432/postgres`. The pooler
+  host (`aws-<n>-<region>.pooler.supabase.com`) cannot be derived from the region; copy it.
+  Percent-encode reserved characters in the password (`&`, `#`, `?`, space).
+- **Port 5432 only.** Port 6543 is transaction mode, which has no prepared statements;
+  production refuses to start with it and says so.
+- **Why the session pooler:** Supabase says the shared pooler is IPv4-only on every plan,
+  and direct connections are IPv6 on the free plan. Not verified: whether Render can make
+  outbound IPv6 connections, so the pooler is the safe choice either way. Also not
+  verified: that `alembic upgrade head` works through the session pooler (session mode
+  supports session state, so it should); the optional integration test checks it.
+- **SSL:** `DB_SSLMODE` defaults to `require` in production (encrypted, the server is not
+  verified). `verify-full` needs the root certificate from Supabase's database settings.
+- **Pool:** production defaults to `DB_POOL_SIZE=3`, `DB_MAX_OVERFLOW=2`, with
+  `pool_pre_ping` on; one worker.
+
 ## Database migrations on deploy
 
 The Render start command is `alembic upgrade head && gunicorn ...`: it runs once
@@ -288,8 +309,9 @@ object.
    Render does not use the Dockerfile for this service. Field names come from
    https://render.com/docs/blueprint-spec. The file was also checked against
    https://render.com/schema/render.yaml.json (see the commit message for how).
-3. **Create the Render blueprint** (web service, `ats-postgres`, `ats-ratelimit`
-   Key Value). Fill the `sync: false` values: `SUPABASE_URL`,
+3. **Create the Render blueprint** (web service and the `ats-ratelimit` Key Value; the
+   database is on Supabase, see "Database on Supabase"). Fill the `sync: false` values:
+   `DATABASE_URL`, `SUPABASE_URL`,
    `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_BUCKET`, `GROQ_API_KEY`. Leave
    `ALLOWED_ORIGINS` as a placeholder for now. Keep one instance.
 4. **Let the first deploy run.** The log shows `alembic upgrade head` running 0001,

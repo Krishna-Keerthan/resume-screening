@@ -21,9 +21,7 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
-        fromDatabase:
-          name: ats-postgres
-          property: connectionString
+        sync: false   # Set in Render dashboard: Supabase SESSION pooler, port 5432 (never 6543)
       - key: RATE_LIMIT_STORAGE_URL
         fromService:
           type: keyvalue
@@ -61,9 +59,3 @@ services:
     name: ats-ratelimit
     plan: free
     ipAllowList: []
-
-databases:
-  - name: ats-postgres
-    plan: free
-    databaseName: ats_db
-    user: ats_user

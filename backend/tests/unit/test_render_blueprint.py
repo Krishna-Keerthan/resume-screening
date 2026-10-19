@@ -55,3 +55,11 @@ def test_the_blueprint_leaves_the_worker_count_to_the_config_default(web):
     # Render's 512 MB fits one worker (docs/deploy_phase3.md); the default lives in config only.
     assert "WORKERS" not in {e["key"] for e in web["envVars"]}
 
+
+
+def test_the_database_is_external_so_the_blueprint_declares_none(blueprint, web):
+    # Postgres lives on Supabase; DATABASE_URL is a secret set in the Render dashboard.
+    assert "databases" not in blueprint
+    (url,) = [e for e in web["envVars"] if e["key"] == "DATABASE_URL"]
+    assert url == {"key": "DATABASE_URL", "sync": False}
+    assert "fromDatabase" not in str(blueprint)
