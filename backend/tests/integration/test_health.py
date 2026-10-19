@@ -149,3 +149,34 @@ class TestReadinessStorage:
 
         for secret in (URL, "supabase.co", BUCKET, SERVICE_KEY, "sb_secret"):
             assert secret not in text
+
+
+class TestLivenessHasNoDependencies:
+    """Render restarts a service whose health check fails for 60 s: a Supabase pause or blip must not."""
+
+    class _Untouchable:
+        def __getattr__(self, name):
+            raise AssertionError(f"liveness touched the service container: {name}")
+
+    def test_liveness_is_200_with_the_database_and_storage_both_failing(self, app, client, monkeypatch):
+        from unittest.mock import patch
+
+        from app.core.database import db
+
+        monkeypatch.setitem(app.extensions, "services", self._Untouchable())
+        with patch.object(db.session, "execute", side_effect=RuntimeError("database down")), \
+             patch.object(db.session, "get_bind", side_effect=RuntimeError("database down")):
+            resp = client.get("/api/v1/health")
+
+        assert resp.status_code == 200
+        assert resp.get_json()["data"]["status"] == "ok"
+
+    def test_readiness_does_report_the_same_failure(self, app, client, monkeypatch):
+        # the contrast: the probe that checks dependencies is not the one Render uses
+        from unittest.mock import patch
+
+        from app.core.database import db
+
+        with patch.object(db.session, "execute", side_effect=RuntimeError("database down")):
+            assert client.get("/api/v1/health/ready").status_code == 503
+

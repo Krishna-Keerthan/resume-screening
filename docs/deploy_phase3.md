@@ -125,6 +125,20 @@ Postgres is a Supabase project, not a Render database; `render.yaml` declares no
 - **Pool:** production defaults to `DB_POOL_SIZE=3`, `DB_MAX_OVERFLOW=2`, with
   `pool_pre_ping` on; one worker.
 
+## Health checks
+
+`render.yaml` sets `healthCheckPath: /api/v1/health`. That endpoint (`liveness()` in
+`app/api/v1/health.py`) returns the status and uptime and makes **no** database, storage or
+service call; a test makes the database and storage fail and still gets 200. This matters
+because Render stops routing traffic to a running service after 15 s of failed checks and
+restarts it after 60 s: a Supabase pause or blip must not do that. `/api/v1/health/ready`
+(database, services, storage) and `/api/v1/health/services` stay out of Render's path; use
+them by hand or from an uptime monitor.
+
+A health check path set in the Render dashboard is not overwritten by the blueprint and can
+shadow it. After creating the service, open Settings → Health Check Path and confirm it reads
+`/api/v1/health`.
+
 ## Database migrations on deploy
 
 The Render start command is `alembic upgrade head && gunicorn ...`: it runs once

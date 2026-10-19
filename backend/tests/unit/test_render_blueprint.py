@@ -63,3 +63,9 @@ def test_the_database_is_external_so_the_blueprint_declares_none(blueprint, web)
     (url,) = [e for e in web["envVars"] if e["key"] == "DATABASE_URL"]
     assert url == {"key": "DATABASE_URL", "sync": False}
     assert "fromDatabase" not in str(blueprint)
+
+
+def test_render_health_checks_the_liveness_endpoint_only(web):
+    # /health makes no database or storage call (test_health.py); /health/ready and
+    # /health/services do, and must stay out of Render's path.
+    assert web["healthCheckPath"] == "/api/v1/health"
