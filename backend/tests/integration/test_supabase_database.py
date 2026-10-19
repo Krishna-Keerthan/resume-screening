@@ -10,6 +10,7 @@ It refuses to run if the database already has tables.
 It checks, with APP_ENV=production settings (DB_SSLMODE=require unless you set it):
   - the app's engine connects over SSL and does one repository round trip;
   - Alembic runs through the pooler, via migrations/env.py's connect_args path;
+  - after upgrade head, anon and authenticated hold no grants in public (migration 0005);
   - DB_SSLMODE reaches Alembic's own connection: with verify-full and a root certificate that
     does not exist, the migration must fail on the certificate.
 The URL and password are never printed by this test.
@@ -96,6 +97,17 @@ def test_migrations_run_through_the_session_pooler_and_a_repository_round_trips(
     upgraded = _alembic("upgrade", "head")
     assert upgraded.returncode == 0, upgraded.stderr[-600:]
     assert {"candidates", "alembic_version"} <= _table_names(db.engine)
+
+    # migration 0005: Supabase's anon and authenticated roles hold nothing in public (counts only)
+    table_grants = db.session.execute(sa.text(
+        "SELECT count(*) FROM information_schema.role_table_grants "
+        "WHERE table_schema = 'public' AND grantee IN ('anon', 'authenticated')")).scalar()
+    sequence_grants = db.session.execute(sa.text(
+        "SELECT count(*) FROM information_schema.role_usage_grants "
+        "WHERE object_schema = 'public' AND object_type = 'SEQUENCE' AND grantee IN ('anon', 'authenticated')")).scalar()
+    assert (table_grants, sequence_grants) == (0, 0), (
+        f"anon/authenticated still hold {table_grants} table grants and {sequence_grants} sequence grants"
+    )
 
     repo = CandidateRepository()
     email = f"pooler-{uuid.uuid4().hex[:8]}@example.com"

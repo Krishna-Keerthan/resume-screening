@@ -145,9 +145,11 @@ otherwise, and Alembic-created tables are not row-level-secured.
    has **not** been tested on a Supabase project here. Enabling RLS with no policies on a role
    that does not bypass it would lock the app out of its own tables. Test first: on the
    throwaway project enable RLS on one table and read it through the pooler.
-4. **Defence in depth (not done, needs a decision):** a migration that revokes privileges on
-   the app's tables from `anon` and `authenticated`. It changes the database's grants, so it
-   is not added without approval.
+4. **Defence in depth:** migration 0005 revokes `anon` and `authenticated` privileges on the
+   tables and sequences in `public`, and their default privileges for ones created later. It is
+   permissions only, does nothing where those roles do not exist, and its downgrade is a no-op.
+   It does not touch functions or `service_role`, and it assumes a dedicated project where nothing else
+   uses the `public` schema.
 
 ## Health checks
 
@@ -173,8 +175,8 @@ The Render start command is `alembic upgrade head && gunicorn ...`: it runs once
 per deploy, before the app starts. Production never calls `db.create_all()`
 (`CREATE_TABLES_ON_STARTUP` is false there; development and tests keep it).
 
-- **First deploy, empty database:** `upgrade head` runs 0001, 0002, 0003, 0004, creates
-  every table and `alembic_version` (at `0004`), then gunicorn starts. Nothing else
+- **First deploy, empty database:** `upgrade head` runs 0001 to 0005, creates
+  every table and `alembic_version` (at `0005`), then gunicorn starts. Nothing else
   to do. Checked locally against an empty Postgres 16 with `APP_ENV=production` (a local Postgres
   without SSL needs `DB_SSLMODE=disable`, since production defaults to `require`).
 - **Later deploys:** nothing to apply means no change; a new migration is applied
@@ -358,7 +360,7 @@ object.
    `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_BUCKET`, `GROQ_API_KEY`. Leave
    `ALLOWED_ORIGINS` as a placeholder for now. Keep one instance.
 4. **Let the first deploy run.** The log shows `alembic upgrade head` running 0001,
-   0002, 0003 and 0004, then gunicorn loading the model and starting. If a Supabase
+   0002, 0003, 0004 and 0005, then gunicorn loading the model and starting. If a Supabase
    value is missing, the app refuses to start and says which one is missing.
 5. **Check the backend directly:** `GET https://<service>.onrender.com/api/v1/health`
    returns 200. Do not log in here.
