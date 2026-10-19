@@ -43,6 +43,53 @@ We are in a **repair phase**: no new features until the audit items are fixed.
 - External calls (Groq, Cloudinary) must report failure honestly. A fallback response must not set `llm_enhanced=True`.
 - Frontend types for API responses should be generated from the backend OpenAPI schema, not hand-written.
 
+## Design rules (SOLID and DRY)
+
+These apply to all new and changed code. Old code that breaks them is listed in Phase 4b and fixed there, one logical change per commit. Do not fix it opportunistically inside an unrelated change.
+
+Single responsibility
+
+A route does four things only: parse input, check auth/ownership, call one service, serialise the result. No business logic, no queries, no scoring in routes.
+Services never import Flask's request/g/current_app. Repositories contain queries only. Models contain no business rules beyond their own invariants.
+Size limits (report-only until Phase 4b finishes, then enforced): function at most 40 lines, module at most 400 lines, cyclomatic complexity at most 10.
+
+Open/closed
+
+Add behaviour by adding an implementation, not by adding a branch. Storage backends (Cloudinary, local) sit behind one interface and are chosen in exactly one factory. if provider == ... is forbidden outside that factory. The same applies to scorers and any other pluggable part.
+
+Liskov
+
+Every implementation of an interface returns the same types and raises the same exceptions. Contract tests run against every implementation (both storage backends, for example).
+
+Interface segregation
+
+Depend on the narrowest thing you need: pass a service or a small protocol, not the whole Services container. get_services() is for route setup only, never inside services.
+
+Dependency inversion
+
+Services receive their dependencies through the factory. No Repo() construction inside route or service bodies, no function-level imports of concrete classes to dodge a cycle (fix the cycle instead), no MagicMock fallbacks.
+Do not add an interface for a single implementation unless a test seam needs it. An abstraction nobody uses is its own violation.
+
+DRY means one source of truth per piece of knowledge, not deduplicated text
+
+One place for each of: score thresholds and labels, stage transitions, enum display labels, ownership rules, error codes, pagination, serialisation, "active résumé" logic, config defaults. Frontend API types are generated from the backend OpenAPI schema.
+Before writing a helper, grep for an existing one. If the same rule now exists twice, extract it in the same commit.
+Two pieces of code that look alike but change for different reasons are not duplicates. Do not merge them.
+
+Enforcement (added in Phase 4b, dev-only, report-only first, then gating)
+
+import-linter: layering api → services → repositories → models, with core/ and utils/ below them and no upward imports.
+ruff: complexity, length and unused-code rules.
+jscpd: duplicate-code detection over backend and frontend, with a fail threshold once the refactor brings the number down.
+ESLint with Next's defaults, plus an npm run lint script.
+Never weaken a rule or raise a threshold to make a check pass. Report the violation instead.
+
+## Dependency policy
+Every dependency has exactly one job, recorded in docs/stack.md (technology, its single job, where it's used, what it overlaps with, keep/remove verdict).
+Adding a dependency needs one line in docs/stack.md first: purpose, what existing tool cannot do it, why. Two libraries for the same job are not allowed; one gets removed.
+Dev-only tools go in requirements-dev.in or devDependencies, never in production images.
+Remove a dependency in its own commit with proof: grep shows no use, the full suite passes on SQLite and Postgres, the frontend builds, and the Docker image still boots.
+
 ## Definition of done (per task)
 - [ ] Failing test written and shown failing
 - [ ] Fix applied
@@ -50,3 +97,7 @@ We are in a **repair phase**: no new features until the audit items are fixed.
 - [ ] Frontend typecheck passes if frontend touched
 - [ ] No new FIX comments, debug prints or unused code
 - [ ] Short summary: what changed, which files, what you did NOT verify
+
+## Current work
+
+Phases 0, 0.5, 1 and 2 are done and merged to main (tag phase-1-done). Current phase: Phase 3 (deploy wiring) on fix/phase-3. Planned order after it: Phase 4b (stack and design audit and refactor), then Phase 4 (scoring), Phase 5 (frontend contract), Phase 6 (hardening). At the start of every session read docs/phase1_plan.md (security decisions that still apply), docs/deploy_phase3.md once it exists, and repair-playbook.md. Do not re-decide settled questions; ask if something conflicts.
