@@ -374,3 +374,5 @@ object.
 10. **Test the proxy limits** (upload sizes, first request after idle), and run
     `docs/supabase-smoke-test.md` with real credentials. Do this before step 8 if you can: it is the
     only check that the bucket is private and the key works.
+
+Note: pooler migration is verified

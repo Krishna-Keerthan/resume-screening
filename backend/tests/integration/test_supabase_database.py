@@ -77,9 +77,10 @@ def app():
 def test_the_app_connects_over_ssl(app):
     from app.core.database import db
 
-    ssl = db.session.execute(sa.text("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")).scalar()
+    # pg_stat_ssl would report the pooler-to-Postgres hop, not the app's own connection.
+    driver_connection = db.session.connection().connection.driver_connection
 
-    assert ssl is True
+    assert driver_connection.info.ssl_in_use is True
 
 
 def test_db_sslmode_reaches_alembics_own_connection(app):
@@ -124,6 +125,7 @@ def test_migrations_run_through_the_session_pooler_and_a_repository_round_trips(
 def test_downgrade_to_base_removes_the_tables(app):
     from app.core.database import db
 
+    db.session.remove()  # an open transaction on candidates would block the DROP INDEX
     downgraded = _alembic("downgrade", "base")
 
     assert downgraded.returncode == 0, downgraded.stderr[-600:]
