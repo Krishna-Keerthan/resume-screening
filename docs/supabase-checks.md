@@ -11,7 +11,7 @@ There are two checks, and they need different variables:
 | Check | What it proves | Command | Variables |
 |---|---|---|---|
 | Storage smoke test | private bucket, signed URLs, expiry, delete | `python ../scripts/supabase_smoke_test.py` | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_BUCKET` |
-| Database integration test | SSL, Alembic through the session pooler, migration 0005, one repository round trip | `pytest -q tests/integration/test_supabase_database.py` | `TEST_SUPABASE_DATABASE_URL` (optional: `DB_SSLMODE`) |
+| Database integration test | SSL, Alembic through the session pooler, migration 0005, one repository round trip | `scripts/run_supabase_check.sh database` | `TEST_SUPABASE_DATABASE_URL`, `CONFIRM_SUPABASE_REF` (the script sets `RUN_SUPABASE_TESTS=1` itself; optional: `DB_SSLMODE`) |
 
 Order, per the settled decision in `docs/STATUS.md`: run both on the **throwaway** project, disable the
 Data API (`docs/deploy_phase3.md`, "Data API exposure"), run both again, and only then repeat on the real
@@ -28,10 +28,13 @@ project. Never use real résumés or a project that holds other tables.
    SUPABASE_SERVICE_ROLE_KEY=<Project Settings -> API; server-side only>
    SUPABASE_BUCKET=resumes-smoke-test
    TEST_SUPABASE_DATABASE_URL=postgresql://postgres.<ref>:<password>@<pooler-host>:5432/postgres
+   CONFIRM_SUPABASE_REF=<ref>
    ```
 
    The database URL is the **session pooler** string from the Connect dialog, port **5432** (not 6543).
-   Percent-encode `&`, `#`, `?` and spaces in the password.
+   Percent-encode `&`, `#`, `?` and spaces in the password. `<ref>` is the project reference: the part of
+   the user name after `postgres.`. `CONFIRM_SUPABASE_REF` must repeat it. That is deliberate: the test
+   drops tables, so it will not touch a Supabase project you have not named a second time.
 3. The database must be **empty**: the test refuses to run (before it changes anything) if `public` has any
    table other than `alembic_version`, and it ends with `alembic downgrade base`, which drops every table the
    app owns.
@@ -59,18 +62,25 @@ Storage prints one `PASS` / `FAIL` line per step, then `done`, and exits non-zer
 never prints the key, an object key or a signed URL. The object it uploads is deleted whatever happens. It
 takes about 15 s (it waits for a 5 s signed URL to expire, plus 5 s grace).
 
-Database prints the pytest summary; you want `10 passed` and no skips.
+Database first prints `Supabase project ref: <ref>` (the ref only, never the URL, so you can see which
+project is targeted), then the pytest summary; you want `21 passed` and no skips.
 
 Before running either check, the script verifies its variables (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
-`SUPABASE_BUCKET` for storage; `TEST_SUPABASE_DATABASE_URL` for database). If any is missing or empty it
+`SUPABASE_BUCKET` for storage; `TEST_SUPABASE_DATABASE_URL` for database, plus `CONFIRM_SUPABASE_REF` when that
+URL contains `supabase`). If any is missing or empty it
 prints `missing or empty in the environment and in <file>: NAME ...` (names only, never values) and exits **3**
 without running anything, so a missing variable can no longer look like a skipped, successful test run.
 Exit 2 is a bad argument or no env file.
 
-**Do not run `pytest tests/integration/test_supabase_database.py` directly as the check.** Importing the app
-loads `backend/.env` through `python-dotenv`, so a plain `pytest` also picks up `TEST_SUPABASE_DATABASE_URL`
-from that file and will run against it; without the variable it reports 7 skipped. Use the script, which
-names what is missing.
+**A plain `pytest` never runs the database tests.** They need `TEST_SUPABASE_DATABASE_URL` *and*
+`RUN_SUPABASE_TESTS=1`; only the script sets the flag, so exporting the URL in a shell is not enough (7
+skipped, with the reason naming both variables). The test session also never reads `backend/.env`:
+`tests/conftest.py` replaces `dotenv.load_dotenv` before the app is imported, because `config/settings.py`
+would otherwise fill the environment from that file on import. The script reads the file itself.
+
+If the URL points at Supabase, the test refuses to start (nothing is changed) unless `CONFIRM_SUPABASE_REF`
+equals the ref in the URL's user name, and a URL whose user name has no ref (the direct `db.<ref>` host) is
+refused: use the session-pooler URL. Both messages name the ref and variable, never the URL.
 
 Send back only the `PASS`/`FAIL` lines and the pytest summary line. The scripts never print the URL or
 password, but a pytest traceback can echo a driver error: if one shows a connection string, do not paste it.
@@ -93,12 +103,15 @@ key is a JWT (the legacy `service_role` key, which starts with `eyJ`). New-style
 
 ## Database integration test: what each test means
 
-The 7 tests that touch the database are skipped without `TEST_SUPABASE_DATABASE_URL`; the 3 guard tests
-(a SQLite stand-in for the empty-database check) always run, which is why `10 passed` is the full result.
+The 7 tests that touch the database are skipped without the URL and `RUN_SUPABASE_TESTS=1`. The other 14
+always run, with no database: the 3 empty-database guard tests (on SQLite), the gate (including two
+subprocess runs of this file that prove a plain pytest skips even with the URL set), and the ref and
+confirmation checks. `21 passed` is the full result of the script.
 
 | Test | Checks | If it fails |
 |---|---|---|
 | fixtures (the database tests error) | the placeholders and URL build a `ProductionConfig`, the app's engine can start, and the database has no table besides `alembic_version` | `the database already has N table(s) besides alembic_version`: use an empty project. A connection error: wrong host, password or port; the direct `db.<ref>.supabase.co` host is IPv6-only on the free plan, so use the pooler host. An `EnvironmentError` about the URL: port 6543, or a missing `DATABASE_URL`. |
+| `test_the_project_ref_*`, `test_a_supabase_*`, `test_the_matching_ref_*`, `test_the_tests_need_*`, `test_gate_subprocess_*` | the ref is read from the pooler user name; a Supabase target needs the matching `CONFIRM_SUPABASE_REF` and the messages hide the URL; both variables are needed to run | These are the safeguards against changing the wrong database: do not run the database tests until they pass. |
 | `test_the_guard_*` (3) | the refusal logic, on SQLite | The guard no longer refuses a database with tables: stop, the downgrade could drop someone else's data. |
 | `test_the_production_defaults_reach_the_apps_engine` | `DB_SSLMODE` is `require` (or what the environment sets), pool size 3 and overflow 2, on the config and on the live engine's pool | A default changed, or `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` no longer reach the engine options. |
 | `test_port_6543_is_refused_by_the_app_config_and_by_alembic` | the transaction-mode port is rejected by the app config and by Alembic's own connection, before any connection is made | Port 6543 was accepted somewhere: prepared statements would break. |
@@ -117,6 +130,11 @@ without SSL, in a scratch database (the test creates and drops the app's tables 
 TEST_SUPABASE_DATABASE_URL=postgresql://postgres:<password>@localhost:<port>/<scratch-db>
 DB_SSLMODE=disable
 ```
+
+To rehearse the ref printing and confirmation too, give the URL a Supabase-looking host and point libpq
+at the local server with `hostaddr` (no DNS lookup happens): create a role named `postgres.rehearsal`, then
+use `postgresql://postgres.rehearsal:<password>@local.supabase.test:<port>/<scratch-db>?hostaddr=127.0.0.1`
+and `CONFIRM_SUPABASE_REF=rehearsal`.
 
 Differences from Supabase: `anon` and `authenticated` do not exist, so the grant counts are 0 trivially;
 pooler behaviour is not exercised; the SSL tests check the `disable` path.
