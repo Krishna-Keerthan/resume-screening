@@ -80,7 +80,7 @@ Someone who calls the `*.onrender.com` address directly bypasses Vercel. With tw
 trusted hops they can put their own entry in `X-Forwarded-For` and so choose their
 own rate-limit key. The per-email login backstop (`RATE_LIMIT_LOGIN_EMAIL`) still
 limits the damage to a single account. The fix is a shared-secret header that
-Vercel adds and the backend checks; it is a Phase 6 item in `Repair_Playbook.md`.
+Vercel adds and the backend checks; it is a Phase 6 item in `repair-playbook.md`.
 
 ## Routes that may hit proxy limits (test by hand)
 
