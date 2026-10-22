@@ -2,7 +2,7 @@
 Manual smoke test for the Supabase storage backend. NOT run in CI. Its logic is tested
 against a fake server (backend/tests/unit/test_supabase_smoke_script.py), but only a run
 against a real project shows Supabase behaves as the backend expects: see
-docs/supabase-smoke-test.md.
+docs/supabase-checks.md.
 
 Run from backend/ with the three variables set (use a throwaway project or a dedicated
 private bucket, never real résumés):

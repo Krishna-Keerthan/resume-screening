@@ -3,7 +3,7 @@ scripts/supabase_smoke_test.py is run by hand against a real Supabase project. T
 run its logic against the fake server, so the script itself is not untested code: they show
 it passes for a private bucket and, more to the point, fails when the bucket is public,
 when a signed URL does not expire, and when the service key is wrong. They do not show that
-Supabase behaves like the fake; only a real run does (docs/supabase-smoke-test.md).
+Supabase behaves like the fake; only a real run does (docs/supabase-checks.md).
 """
 import importlib.util
 import os

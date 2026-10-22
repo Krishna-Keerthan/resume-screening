@@ -137,7 +137,7 @@ otherwise, and Alembic-created tables are not row-level-secured.
    affected; after disabling, confirm the app still connects.
 2. **What the docs do not say** (so test on the throwaway project, then again after
    disabling): whether turning it off affects the **Storage API** the app uses for résumés.
-   Run `docs/supabase-smoke-test.md` before and after; do not disable it on the real project
+   Run `docs/supabase-checks.md` before and after; do not disable it on the real project
    until the second run passes.
 3. **Row-level security: do not enable it yet.** In Postgres a table's owner bypasses RLS
    unless `FORCE ROW LEVEL SECURITY` is set, and Supabase's `postgres` role has `BYPASSRLS`;
@@ -330,7 +330,7 @@ redeploy; nothing else holds a copy.
 At startup the app refuses to start if any of the three values is empty, or if `SUPABASE_URL` is not an
 http(s) URL without a path. It does **not** contact Supabase at startup, so a wrong key, a missing
 bucket or a public bucket is **not** caught there. `scripts/supabase_smoke_test.py` catches them: run it
-once against the real project before the first user (`docs/supabase-smoke-test.md`). It checks that the
+once against the real project before the first user (`docs/supabase-checks.md`). It checks that the
 bucket is private, the plain URLs fail, a signed URL works and then expires, and delete removes the
 object.
 
@@ -372,7 +372,7 @@ object.
    reload a protected page.
 9. **Verify the proxy hop count** (section above), then turn `LOG_PROXY_CHAIN` off.
 10. **Test the proxy limits** (upload sizes, first request after idle), and run
-    `docs/supabase-smoke-test.md` with real credentials. Do this before step 8 if you can: it is the
+    `docs/supabase-checks.md` with real credentials. Do this before step 8 if you can: it is the
     only check that the bucket is private and the key works.
 
 Note: pooler migration is verified
