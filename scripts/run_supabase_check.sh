@@ -17,6 +17,9 @@ python="${PYTHON:-$HOME/ats-venv311/bin/python}"
 
 while IFS= read -r line || [ -n "$line" ]; do
   line="${line%$'\r'}"                       # Windows line ending
+  line="${line#$'\xef\xbb\xbf'}"             # UTF-8 byte order mark (only the first line has one)
+  line="${line#"${line%%[![:space:]]*}"}"    # leading whitespace
+  case "$line" in 'export '*) line="${line#export}"; line="${line#"${line%%[![:space:]]*}"}" ;; esac
   case "$line" in ''|'#'*) continue ;; esac
   case "$line" in *=*) ;; *) continue ;; esac
   key="${line%%=*}"
