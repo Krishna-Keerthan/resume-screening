@@ -18,7 +18,8 @@ SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "run_supabase_check.s
 pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
 
 REPORTER = """import json, os
-print(json.dumps({k: v for k, v in os.environ.items() if k.startswith("T_")}))
+print(json.dumps({k: v for k, v in os.environ.items()
+                  if k.startswith("T_") or k in ("RUN_SUPABASE_TESTS", "CONFIRM_SUPABASE_REF")}))
 """
 
 
@@ -128,3 +129,42 @@ def test_values_are_never_executed_or_expanded(run, tmp_path):
 
     assert not marker.exists()
     assert got == {"T_A": f"p&w$HOME`touch {marker}`$(touch {marker})#x=y"}
+
+
+SUPABASE_URL = "postgresql://postgres.abcdefghij:Zq9notprinted@aws-0-eu-west-1.pooler.supabase.com:5432/postgres"
+
+
+def test_the_database_check_sets_the_run_flag_itself_whatever_the_file_says(launch):
+    done = launch(b"RUN_SUPABASE_TESTS=0\n", "database")
+
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout)["RUN_SUPABASE_TESTS"] == "1"
+
+
+def test_the_storage_check_does_not_set_the_run_flag(launch):
+    done = launch(b"T_A=1\n", "storage")
+
+    assert "RUN_SUPABASE_TESTS" not in json.loads(done.stdout)
+
+
+def test_a_supabase_database_url_needs_the_confirmation_ref(launch):
+    done = launch(f"TEST_SUPABASE_DATABASE_URL={SUPABASE_URL}\n".encode(), "database", required=False)
+
+    assert done.returncode == 3
+    assert "CONFIRM_SUPABASE_REF" in done.stderr
+    assert "Zq9notprinted" not in done.stdout + done.stderr
+    assert done.stdout == ""
+
+
+def test_the_confirmation_ref_from_the_file_reaches_the_check(launch):
+    content = f"TEST_SUPABASE_DATABASE_URL={SUPABASE_URL}\nCONFIRM_SUPABASE_REF=abcdefghij\n".encode()
+    done = launch(content, "database", required=False)
+
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout)["CONFIRM_SUPABASE_REF"] == "abcdefghij"
+
+
+def test_a_local_database_url_needs_no_confirmation_ref(launch):
+    done = launch(b"TEST_SUPABASE_DATABASE_URL=postgresql://postgres:test@localhost:55432/db\n", "database", required=False)
+
+    assert done.returncode == 0, done.stderr

@@ -39,6 +39,12 @@ case "${1:-}" in
   *) echo "usage: run_supabase_check.sh storage|database" >&2; exit 2 ;;
 esac
 
+# A Supabase target must be confirmed by its project ref (the test checks the value; the host
+# test here is only to name the variable when it is missing).
+case "${TEST_SUPABASE_DATABASE_URL:-}" in
+  *supabase*) [ "$1" = database ] && required+=(CONFIRM_SUPABASE_REF) ;;
+esac
+
 # A missing variable must fail the run (pytest would otherwise skip the database test and
 # exit 0). Only names are printed, never values.
 missing=()
@@ -53,5 +59,6 @@ fi
 cd "$root/backend"
 case "$1" in
   storage)  exec "$python" ../scripts/supabase_smoke_test.py ;;
-  database) exec "$python" -m pytest -p no:cacheprovider -q tests/integration/test_supabase_database.py ;;
+  database) export RUN_SUPABASE_TESTS=1   # the tests skip without it; only this script opts in
+            exec "$python" -m pytest -p no:cacheprovider -q tests/integration/test_supabase_database.py ;;
 esac

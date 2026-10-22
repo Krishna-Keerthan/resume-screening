@@ -1,12 +1,14 @@
 """
 The database on Supabase, through the session pooler. The checks that need a database skip
-unless TEST_SUPABASE_DATABASE_URL is set, to the session-pooler URL (port 5432) of a THROWAWAY
-Supabase project: they run `alembic upgrade head`, then `alembic downgrade base`, which drops
-every table the app owns. They refuse to run if the database already has tables other than
-`alembic_version`.
+unless BOTH TEST_SUPABASE_DATABASE_URL (the session-pooler URL, port 5432, of a THROWAWAY Supabase
+project) and RUN_SUPABASE_TESTS=1 are set. They run `alembic upgrade head`, then
+`alembic downgrade base`, which drops every table the app owns. They refuse to run if the database
+already has tables other than `alembic_version`, and, when the host is Supabase, unless
+CONFIRM_SUPABASE_REF equals the project ref in the URL's user name (`postgres.<ref>`). The ref is
+printed; the URL never is.
 
-  TEST_SUPABASE_DATABASE_URL=postgresql://postgres.<ref>:<password>@<pooler-host>:5432/postgres \
-      pytest -q tests/integration/test_supabase_database.py
+Run it with `scripts/run_supabase_check.sh database`, which reads those variables from backend/.env
+and sets RUN_SUPABASE_TESTS itself. A plain `pytest` skips these tests.
 
 They use the production settings (APP_ENV=production). DATABASE_URL and DB_SSLMODE come from the
 URL above and the environment (DB_SSLMODE defaults to `require`; use `disable` for a local
@@ -37,7 +39,19 @@ import sqlalchemy as sa
 from sqlalchemy.engine import make_url
 
 URL = os.getenv("TEST_SUPABASE_DATABASE_URL")
-requires_url = pytest.mark.skipif(not URL, reason="set TEST_SUPABASE_DATABASE_URL (throwaway Supabase project)")
+CONFIRMED_REF = os.getenv("CONFIRM_SUPABASE_REF")
+RUN_ENV_VAR = "RUN_SUPABASE_TESTS"
+
+
+def _enabled(url, run_flag):
+    """These tests change a real database, so a URL alone (it could come from anywhere) is not enough."""
+    return bool(url) and run_flag == "1"
+
+
+requires_url = pytest.mark.skipif(
+    not _enabled(URL, os.getenv(RUN_ENV_VAR)),
+    reason=f"set TEST_SUPABASE_DATABASE_URL and {RUN_ENV_VAR}=1 (scripts/run_supabase_check.sh database does)",
+)
 
 _BACKEND = Path(__file__).resolve().parents[2]
 
@@ -68,6 +82,33 @@ def _alembic(*args, **env):
 
 def _table_names(engine, schema="public"):
     return set(sa.inspect(engine).get_table_names(schema=schema))
+
+
+def _project_ref(url):
+    """The Supabase project ref (the part of the pooler user name after 'postgres.'), or None
+    when the host is not Supabase. Raises ValueError when it is Supabase but has no ref."""
+    parsed = make_url(url)
+    if "supabase" not in (parsed.host or ""):
+        return None
+    username = parsed.username or ""
+    if "." not in username:
+        raise ValueError("the user name has no project ref: use the session-pooler URL (postgres.<ref>)")
+    return username.split(".", 1)[1]
+
+
+def _confirm_target(url, confirmed_ref):
+    """Fail, before anything is changed, unless a Supabase target was confirmed by its ref.
+    Returns the ref ('' for a non-Supabase host). Messages carry the ref, never the URL."""
+    try:
+        ref = _project_ref(url)
+    except ValueError as error:
+        pytest.fail(str(error))
+    if ref is None:
+        return ""
+    if confirmed_ref != ref:
+        pytest.fail(f"this URL targets Supabase project '{ref}'. To run against it, set "
+                    f"CONFIRM_SUPABASE_REF={ref}. Nothing was changed.")
+    return ref
 
 
 def _refuse_unless_empty(engine, schema="public"):
@@ -112,13 +153,18 @@ def settings(production_env):
 
 
 @pytest.fixture(scope="module")
-def app(settings):
+def app(settings, request):
     """A minimal Flask app on the app's own production config and database setup. No limiter, no
     services: nothing here talks to Redis."""
     from flask import Flask
 
     from app.core.database import db, init_db
 
+    ref = _confirm_target(URL, CONFIRMED_REF)   # before the app can reach the database
+    if ref:
+        reporter = request.config.pluginmanager.get_plugin("terminalreporter")
+        if reporter:
+            reporter.write_line(f"\nSupabase project ref: {ref}")
     app = Flask(__name__)
     app.config.from_object(settings.ProductionConfig())
     init_db(app)
@@ -244,3 +290,78 @@ def test_the_placeholder_redis_host_was_never_looked_up(app, production_env):
     # Python-level lookups only: psycopg resolves the database host inside libpq. The Alembic
     # subprocesses build no limiter either, and the host would not resolve anyway (.invalid).
     assert _FAKE_REDIS_HOST not in production_env
+
+
+# ─── Gate and confirmation: these run without any database ───────────────────
+
+def test_the_tests_need_both_the_url_and_the_run_flag():
+    assert _enabled("postgresql://u:p@h/db", "1") is True
+    assert _enabled("postgresql://u:p@h/db", None) is False
+    assert _enabled("postgresql://u:p@h/db", "0") is False
+    assert _enabled("postgresql://u:p@h/db", "true") is False
+    assert _enabled(None, "1") is False
+    assert _enabled("", "1") is False
+
+
+def _pytest_on_this_file(**env):
+    environment = {k: v for k, v in os.environ.items()
+                   if k not in ("TEST_SUPABASE_DATABASE_URL", RUN_ENV_VAR, "CONFIRM_SUPABASE_REF")}
+    environment.update(env)
+    return subprocess.run(
+        [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q", "-rs", "-k", "not gate_subprocess",
+         "tests/integration/test_supabase_database.py"],
+        cwd=_BACKEND, env=environment, capture_output=True, text=True,
+    )
+
+
+_UNREACHABLE_URL = "postgresql://u:Zq9notprinted@host.invalid:5432/db"
+
+
+def test_gate_subprocess_a_plain_pytest_skips_the_database_tests_even_with_the_url_set():
+    done = _pytest_on_this_file(TEST_SUPABASE_DATABASE_URL=_UNREACHABLE_URL)
+
+    assert done.returncode == 0, done.stdout[-800:]
+    assert "7 skipped" in done.stdout
+    assert RUN_ENV_VAR in done.stdout   # the skip reason says what to set
+    assert "Zq9notprinted" not in done.stdout + done.stderr
+
+
+def test_gate_subprocess_with_the_flag_the_database_tests_are_attempted():
+    done = _pytest_on_this_file(TEST_SUPABASE_DATABASE_URL=_UNREACHABLE_URL, **{RUN_ENV_VAR: "1"})
+
+    assert "skipped" not in done.stdout   # they ran, and failed on the unreachable host
+    assert done.returncode != 0
+    assert "Zq9notprinted" not in done.stdout + done.stderr
+
+
+def test_the_project_ref_comes_from_the_pooler_user_name():
+    url = "postgresql://postgres.abcdefghij:secret@aws-0-eu-west-1.pooler.supabase.com:5432/postgres"
+
+    assert _project_ref(url) == "abcdefghij"
+
+
+def test_a_non_supabase_host_has_no_ref_and_needs_no_confirmation():
+    assert _project_ref("postgresql://postgres:test@localhost:55432/db") is None
+    assert _confirm_target("postgresql://postgres:test@localhost:55432/db", None) == ""
+
+
+def test_a_supabase_url_without_a_ref_in_the_user_name_is_refused():
+    with pytest.raises(pytest.fail.Exception, match="project ref"):
+        _confirm_target("postgresql://postgres:secret@db.abcdefghij.supabase.co:5432/postgres", "abcdefghij")
+
+
+SUPABASE_URL = "postgresql://postgres.abcdefghij:secret@aws-0-eu-west-1.pooler.supabase.com:5432/postgres"
+
+
+@pytest.mark.parametrize("confirmed", [None, "", "otherproject", "ABCDEFGHIJ"])
+def test_a_supabase_target_needs_the_matching_ref_and_the_message_hides_the_url(confirmed):
+    with pytest.raises(pytest.fail.Exception) as raised:
+        _confirm_target(SUPABASE_URL, confirmed)
+
+    message = str(raised.value)
+    assert "CONFIRM_SUPABASE_REF=abcdefghij" in message
+    assert "secret" not in message and "pooler.supabase.com" not in message
+
+
+def test_the_matching_ref_is_accepted_and_returned():
+    assert _confirm_target(SUPABASE_URL, "abcdefghij") == "abcdefghij"
