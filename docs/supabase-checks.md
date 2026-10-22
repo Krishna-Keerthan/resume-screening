@@ -32,8 +32,16 @@ project. Never use real résumés or a project that holds other tables.
 
    The database URL is the **session pooler** string from the Connect dialog, port **5432** (not 6543).
    Percent-encode `&`, `#`, `?` and spaces in the password.
-3. The database must be **empty**: the test refuses to run if `public` already has tables, and it ends with
-   `alembic downgrade base`, which drops every table the app owns.
+3. The database must be **empty**: the test refuses to run (before it changes anything) if `public` has any
+   table other than `alembic_version`, and it ends with `alembic downgrade base`, which drops every table the
+   app owns.
+4. Optional `DB_SSLMODE` in the same file. Leave it out for Supabase: the production default, `require`, is
+   what the test checks. Set `disable` only for a local Postgres without SSL (see "Rehearsing against a local
+   Postgres").
+
+The database test needs nothing else: `SECRET_KEY` and the Redis URL (`RATE_LIMIT_STORAGE_URL`), which the
+production config insists on, are made-up placeholders set by the test. The Redis host is under `.invalid`,
+which cannot resolve, and a test checks that Python never looked it up. No Redis has to run.
 
 ## Commands (WSL, from PowerShell)
 
@@ -49,11 +57,20 @@ wsl bash /mnt/d/VS_CODE/resume_screening/scripts/run_supabase_check.sh database
 
 Storage prints one `PASS` / `FAIL` line per step, then `done`, and exits non-zero at the first failure. It
 never prints the key, an object key or a signed URL. The object it uploads is deleted whatever happens. It
-takes about 15 s (it waits for a 5 s signed URL to expire, plus 5 s grace). With a variable missing it exits
-1 with `Set these environment variables: ...` (names only).
+takes about 15 s (it waits for a 5 s signed URL to expire, plus 5 s grace).
 
-Database prints the pytest summary. **`4 skipped` means `TEST_SUPABASE_DATABASE_URL` was empty or missing
-from `backend/.env`, not that the check passed.** You want `4 passed`.
+Database prints the pytest summary; you want `10 passed` and no skips.
+
+Before running either check, the script verifies its variables (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+`SUPABASE_BUCKET` for storage; `TEST_SUPABASE_DATABASE_URL` for database). If any is missing or empty it
+prints `missing or empty in the environment and in <file>: NAME ...` (names only, never values) and exits **3**
+without running anything, so a missing variable can no longer look like a skipped, successful test run.
+Exit 2 is a bad argument or no env file.
+
+**Do not run `pytest tests/integration/test_supabase_database.py` directly as the check.** Importing the app
+loads `backend/.env` through `python-dotenv`, so a plain `pytest` also picks up `TEST_SUPABASE_DATABASE_URL`
+from that file and will run against it; without the variable it reports 7 skipped. Use the script, which
+names what is missing.
 
 Send back only the `PASS`/`FAIL` lines and the pytest summary line. The scripts never print the URL or
 password, but a pytest traceback can echo a driver error: if one shows a connection string, do not paste it.
@@ -76,13 +93,33 @@ key is a JWT (the legacy `service_role` key, which starts with `eyJ`). New-style
 
 ## Database integration test: what each test means
 
+The 7 tests that touch the database are skipped without `TEST_SUPABASE_DATABASE_URL`; the 3 guard tests
+(a SQLite stand-in for the empty-database check) always run, which is why `10 passed` is the full result.
+
 | Test | Checks | If it fails |
 |---|---|---|
-| fixture (every test errors) | the database is reachable and empty | `the database already has tables`: use an empty project. A connection error: wrong host, password or port. Port 6543 is refused by design. The direct `db.<ref>.supabase.co` host is IPv6-only on the free plan, so use the pooler host. |
-| `test_the_app_connects_over_ssl` | the app's own engine, with production settings (`DB_SSLMODE=require`), is on SSL | The connection is unencrypted. Check `DB_SSLMODE` in the environment. |
-| `test_db_sslmode_reaches_alembics_own_connection` | with `verify-full` and a missing root certificate, Alembic fails on the certificate | `DB_SSLMODE` does not reach `migrations/env.py`, so migrations would run with a different SSL mode than the app. |
+| fixtures (the database tests error) | the placeholders and URL build a `ProductionConfig`, the app's engine can start, and the database has no table besides `alembic_version` | `the database already has N table(s) besides alembic_version`: use an empty project. A connection error: wrong host, password or port; the direct `db.<ref>.supabase.co` host is IPv6-only on the free plan, so use the pooler host. An `EnvironmentError` about the URL: port 6543, or a missing `DATABASE_URL`. |
+| `test_the_guard_*` (3) | the refusal logic, on SQLite | The guard no longer refuses a database with tables: stop, the downgrade could drop someone else's data. |
+| `test_the_production_defaults_reach_the_apps_engine` | `DB_SSLMODE` is `require` (or what the environment sets), pool size 3 and overflow 2, on the config and on the live engine's pool | A default changed, or `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` no longer reach the engine options. |
+| `test_port_6543_is_refused_by_the_app_config_and_by_alembic` | the transaction-mode port is rejected by the app config and by Alembic's own connection, before any connection is made | Port 6543 was accepted somewhere: prepared statements would break. |
+| `test_the_app_connects_with_the_configured_ssl_mode` | the app's engine is on SSL, unless `DB_SSLMODE=disable` | The connection is unencrypted although `require` was configured. |
+| `test_db_sslmode_reaches_alembics_own_connection` | with `verify-full` and a missing root certificate, Alembic fails on the certificate (with `DB_SSLMODE=disable` set, on a server without SSL: on "does not support SSL") | `DB_SSLMODE` does not reach `migrations/env.py`, so migrations would run with a different SSL mode than the app. |
 | `test_migrations_run_through_the_session_pooler_and_a_repository_round_trips` | `alembic upgrade head` works through the pooler; `anon` and `authenticated` hold zero grants in `public` (migration 0005); a candidate can be saved, read and deleted | A non-zero return code shows the last 600 characters of Alembic's stderr: a pooler or permissions problem. `anon/authenticated still hold N table grants`: migration 0005 did not take effect on this project. A repository error: the schema or connection mode is wrong. |
 | `test_downgrade_to_base_removes_the_tables` | `alembic downgrade base` leaves only `alembic_version` | Leftover tables mean the downgrade is incomplete. Drop them by hand before the next run. |
+| `test_the_placeholder_redis_host_was_never_looked_up` | no Python-level lookup of the placeholder Redis host happened during the run | Something in the test path initialises the rate limiter. Psycopg resolves the database host inside libpq, so this test cannot see database lookups, and the Alembic subprocesses are covered only by the host not resolving. |
+
+### Rehearsing against a local Postgres
+
+Proves the setup works without a Supabase project; it is **not** a Supabase result. On a local Postgres 16
+without SSL, in a scratch database (the test creates and drops the app's tables in it):
+
+```
+TEST_SUPABASE_DATABASE_URL=postgresql://postgres:<password>@localhost:<port>/<scratch-db>
+DB_SSLMODE=disable
+```
+
+Differences from Supabase: `anon` and `authenticated` do not exist, so the grant counts are 0 trivially;
+pooler behaviour is not exercised; the SSL tests check the `disable` path.
 
 After the Data API is disabled, run **both** checks again. Disabling it is not documented to affect either;
 this run is what tells you. If a check fails only after disabling it, turn the Data API back on and report
