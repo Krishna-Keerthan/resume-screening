@@ -22,23 +22,60 @@ print(json.dumps({k: v for k, v in os.environ.items() if k.startswith("T_")}))
 """
 
 
+REQUIRED = {
+    "storage": ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_BUCKET"),
+    "database": ("TEST_SUPABASE_DATABASE_URL",),
+}
+
+
 @pytest.fixture
-def run(tmp_path):
+def launch(tmp_path):
+    """Runs the script once; `required=False` leaves the variables the check needs unset."""
     reporter = tmp_path / "reporter.py"
     reporter.write_text(REPORTER)
     fake_python = tmp_path / "fake_python"
     fake_python.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{reporter}"\n')
     fake_python.chmod(fake_python.stat().st_mode | stat.S_IEXEC)
 
-    def _run(content: bytes, check: str = "storage"):
+    def _launch(content: bytes, check: str = "storage", required: bool = True):
         env_file = tmp_path / "env"
         env_file.write_bytes(content)
         env = {"PATH": "/usr/bin:/bin", "ENV_FILE": str(env_file), "PYTHON": str(fake_python), "HOME": str(tmp_path)}
-        done = subprocess.run(["bash", str(SCRIPT), check], env=env, capture_output=True, text=True)
+        if required:
+            env.update({name: "placeholder" for name in REQUIRED[check]})
+        return subprocess.run(["bash", str(SCRIPT), check], env=env, capture_output=True, text=True)
+
+    return _launch
+
+
+@pytest.fixture
+def run(launch):
+    def _run(content: bytes, check: str = "storage"):
+        done = launch(content, check)
         assert done.returncode == 0, done.stderr
         return json.loads(done.stdout)
 
     return _run
+
+
+@pytest.mark.parametrize("check", sorted(REQUIRED))
+def test_a_missing_variable_fails_and_is_named_without_its_value(launch, check):
+    done = launch(b"T_OTHER=secret-value-1\n", check, required=False)
+
+    assert done.returncode == 3
+    for name in REQUIRED[check]:
+        assert name in done.stderr
+    assert "secret-value-1" not in done.stdout + done.stderr
+    assert done.stdout == ""   # the check itself never ran
+
+
+def test_only_the_missing_variables_are_named(launch):
+    done = launch(b"SUPABASE_URL=https://x\nSUPABASE_BUCKET=\n", "storage", required=False)
+
+    assert done.returncode == 3
+    assert "SUPABASE_SERVICE_ROLE_KEY" in done.stderr
+    assert "SUPABASE_BUCKET" in done.stderr   # set but empty counts as missing
+    assert "SUPABASE_URL" not in done.stderr
 
 
 def test_crlf_line_endings_do_not_reach_the_values(run):
