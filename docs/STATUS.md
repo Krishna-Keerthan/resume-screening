@@ -1,16 +1,19 @@
 # Project status (resume screening platform repair)
 
-Last updated: 2026-10-22, from reports in the planning chat. Git is the source of truth: if this file and `git log` disagree, believe git and fix this file. Update it at the end of every session.
+Last updated: 2026-10-22 (session: verify, rename, suites, Supabase docs, boot breakdown). Git is the source of truth: if this file and `git log` disagree, believe git and fix this file. Update it at the end of every session.
 
 ## Verify first (a fresh session must run these before trusting anything below)
 - `git status`, `git branch -a`, `git tag`
 - `git log --oneline main..fix/phase-3 | wc -l` (last reported: 46-48 commits ahead) and `git log --oneline fix/phase-3..main` (should print nothing)
-- Is `Repair_Playbook.md` still capitalised? CLAUDE.md refers to `repair-playbook.md`.
+- Is `Repair_Playbook.md` still capitalised? (Renamed to `repair-playbook.md` on 2026-10-22; `git ls-files | grep -i playbook` should print the lower-case name only.)
+
+Verified 2026-10-22 (before that session's commits): on `fix/phase-3`, working tree clean, `main` and `origin/main` at `be2dace` (`git log --oneline fix/phase-3..main` printed nothing), local tag `phase-1-done` only (no `phase-3-code` yet), 49 commits ahead of `main` (this file had said 46-48; the number moves with every commit, so recount). Local branches `fix/phase-0`, `-1`, `-2` still exist.
 
 ## Done
 - Phase 0, 0.5, 2 (test baseline, crash bugs, Alembic) and Phase 1 (security: every route authenticated and ownership-checked, atomic refresh rotation, rate limiting, private uploads, route-guard test). Tagged `phase-1-done`.
 - Phase 3 code on `fix/phase-3`: Vercel proxy and first-party refresh cookie (strategy B); `alembic upgrade head` in the start command; storage moved from Cloudinary to Supabase Storage behind one interface (no public URLs); Postgres moved to the Supabase session pooler (migration 0005 revokes anon/authenticated privileges); liveness check that makes no dependency calls; Groq shared time budget; one gunicorn config; model baked into the build.
-- Last known suites (2026-10-19): Postgres 16: 1059 passed, 6 skipped, 2 xfailed. SQLite: 1053 passed, 12 skipped, 2 xfailed. The 2 xfails are intentional Phase 4 scorer markers.
+- Suites re-run 2026-10-22 on the branch (WSL, Python 3.11 venv, Postgres 16.15 container): Postgres 16: 1059 passed, 6 skipped, 2 xfailed (exit 0, 496 s). SQLite: 1053 passed, 12 skipped, 2 xfailed (exit 0, 269 s). Identical to the 2026-10-19 numbers. The 2 xfails are intentional Phase 4 scorer markers. The skips are the Supabase checks (need a real project), the real-model scoring test (`--run-slow`) and the Postgres-only concurrency test on SQLite.
+- Frontend 2026-10-22: `npm ci` exit 0, `npx tsc --noEmit` exit 0, `npm run build` exit 0 with `API_PROXY_TARGET=https://placeholder.example.onrender.com` (the build rewrites `frontend/next-env.d.ts`; revert it). `npm run lint` was not run. `npm ci` printed an audit summary that was not triaged.
 
 ## Decisions (settled; do not re-ask)
 - Cookie strategy B (Next.js proxy). TRUSTED_PROXY_HOPS=2 is an estimate until checked on the real deployment, then remove the temporary proxy-chain logging in its own commit.
@@ -23,16 +26,33 @@ Last updated: 2026-10-22, from reports in the planning chat. Git is the source o
 
 ## Measurements (docker, approximates Render; not Render)
 - Anonymous memory about 351 MiB in every run; no OOM kill from 512m down to 384m (production-like: Postgres, Redis, fake Supabase). Page cache explains peak swings of up to about 150 MiB.
-- At 0.1 CPU the port opens only after 69-75 s (torch and model load with preload); requests in that window are refused. First scoring about 2 s, later about 100 ms. At 0.5 CPU boot was about 15 s.
+- At 0.1 CPU the port opens only after 69-75 s (torch and model load with preload); requests in that window are refused. First scoring about 2 s, later about 100 ms. At 0.5 CPU boot was about 15 s. (Earlier figures; see the breakdown below.)
+- Boot breakdown, 2026-10-22: image built from the branch's `backend/Dockerfile`, `--cpus 0.1`, Postgres 16 on the host, production config with fake Supabase values, 3 fresh containers, seconds:
+
+  | Phase | Run 1 | Run 2 | Run 3 |
+  |---|---|---|---|
+  | `alembic upgrade head` (empty DB, 5 migrations, includes interpreter start) | 16.4 | 16.6 | 16.6 |
+  | `import torch` | 23.4 | 24.4 | 23.8 |
+  | `import sentence_transformers` (after torch) | 58.3 | 54.4 | 53.2 |
+  | import the rest of the app | 1.1 | 1.1 | 1.1 |
+  | `create_app`, of which model construct / warm-up | 10.4 (3.3 / 0.5) | 9.6 (2.8 / 0.4) | 10.1 (3.2 / 0.5) |
+  | Sum | 99.2 | 96.5 | 94.7 |
+
+  The imports are about 80 s of about 96 s; constructing and warming the model is about 3.5 s. Cutting model work would not help; moving the imports off the critical path or removing them would. A first, cold-image run summed to 111 s. One end-to-end run of `alembic upgrade head && gunicorn ...` gave the first HTTP answer (`/api/v1/health`, 200) after 113.7 s including container start. That is higher than the 69-75 s reported earlier and the difference is unexplained (alembic is about 17 s of it; the earlier figure may have excluded it). Treat 70 to 115 s as the range until Render numbers exist. The phases were timed in one script with `import torch` first, so the torch / sentence_transformers split depends on that order; the total does not.
+- Memory, 2026-10-22: 512 MB, 0.5 CPU container right after boot, no requests: `memory.stat` anon 297 MiB, file 2 MiB, `memory.current` 313 MiB, `oom_kill 0`; boot took 21 s at 0.5 CPU. `docs/stack.md` no longer claims 9 MB of headroom from PSS. `docs/deploy_phase3.md` ("Memory against Render's 512 MB") and `docs/db-supabase-plan.md` still say PSS is the figure to compare with the limit: the same mistake, still to be corrected.
 - Unmeasured: Render's own memory accounting, real Supabase over TLS, cold start after idle on Render, proxy upload limits.
 
 ## Manual steps (the user's; Claude Code cannot do these)
 1. Throwaway Supabase project, private bucket, credentials only in a local gitignored `.env`.
-2. Run the Supabase checks (docs/supabase_checks.md or docs/supabase-smoke-test.md: reconcile to one file): DB integration test, storage smoke test, then both again with the Data API disabled. Send back pass/fail lines and counts only.
+2. Run the Supabase checks from `docs/supabase-checks.md` (the one file; `docs/supabase_checks.md` never existed in git): `wsl bash /mnt/d/VS_CODE/resume_screening/scripts/run_supabase_check.sh storage` and then `... database`, then both again with the Data API disabled. `4 skipped` from the database check means the variable was not loaded, not a pass. Send back pass/fail lines and counts only. The script's env loading and exit codes were tested with a fake env file; it has not been run against a real project.
 3. First deploy to Free following docs/deploy_phase3.md. Record: live message, port detection, memory graph and any "Out of memory!", first request after 15+ idle minutes, proxy-chain log line, the 429 test from a phone on mobile data, résumé survives a redeploy, uploads of about 9 MB and 10.5 MB, no tokens or cookies in logs.
 
 ## Next engineering
-- Fix the memory note in docs/stack.md (anonymous memory vs PSS) and the boot-time breakdown; a startup design proposal (open the port early, load the model in a background thread) is awaiting approval. Do not implement before Render numbers exist.
+- Correct the same PSS claim in `docs/deploy_phase3.md` and `docs/db-supabase-plan.md` (one commit).
+- Startup design proposal, awaiting approval, not implemented, not to be built before Render numbers exist. Problem: with `preload_app = True` gunicorn listens only after the imports and the app finish (about 80 s of imports at 0.1 CPU), so Render's port detection and health check see nothing meanwhile. Design: gunicorn binds at once with `preload_app = False` (no memory cost with one worker, per deploy_phase3.md); `wsgi:app` is a thin WSGI callable that answers the liveness route immediately while one background thread runs the imports, `create_app` and the model load. If that thread fails the process exits non-zero, so a missing model still fails the deploy loudly (today's `_require_embedding_model` guarantee). `/health/ready` reports `model_loaded: false` while it runs. Two options for requests that arrive before it is ready:
+  - **A (recommended first):** every route except liveness answers 503 with `Retry-After` and a stable error code such as `starting`. One check in one place, so no route can score without the model. Cost: login and browsing are also unavailable until ready.
+  - **B:** routes that do not need the model (login, listing) work once the app object exists; scoring and upload paths raise a `ModelNotReady` error that one handler maps to 503. Better first visit, but `create_app` would have to build the app before the model, and any path that today degrades to "no semantic score" when the model is unavailable would have to raise instead, or scores would silently lose their 40 % semantic part.
+  Not measured: how quickly the port would open (expected seconds, because only Python, gunicorn and the thin callable load first), and whether the loading thread's GIL use slows liveness answers at 0.1 CPU. An alternative that attacks the cause: a lighter embedding runtime (Phase 4b audit), since `import sentence_transformers` alone is about 55 s here.
 - Then merge Phase 3, tag `phase-3-code`.
 - Phase 4b (measure first): stack audit (docs/stack.md), DRY (jscpd), SOLID (import-linter, ruff), ESLint and an `npm run lint` script; PyMuPDF vs pdfplumber overlap; Zustand vs TanStack Query; axios vs fetch; Tailwind 3 to 4 (7 audit findings in the Tailwind 3 chain).
 - Phase 4 (scoring): cached scores refresh and link to applications, win-rate enum bug, hiring recommendation can't say "no", BM25 one-document bug, B.Tech/BE degree regex, skill aliases, recruiter input overwritten, Groq failures must say failed (and skipped vs failed vs not needed), JSON columns double-encoded, withdraw idempotent, re-add location/job_type filters if wanted.
