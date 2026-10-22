@@ -8,15 +8,21 @@ import os
 import uuid
 from unittest.mock import MagicMock, patch
 
+import dotenv
 import pytest
 import sqlalchemy as sa
 from flask.testing import FlaskClient
 from flask_sqlalchemy.session import Session as FlaskSQLAlchemySession
 from sqlalchemy import orm as sa_orm
 
-from app import create_app
-from app.core.database import db as _db
-from config.settings import TestingConfig
+# config/settings.py calls load_dotenv() when it is imported, which would fill os.environ from
+# backend/.env (a developer's real credentials). A test session never reads it. python-dotenv 1.0
+# has no switch for this, so the function is replaced before the app is imported.
+dotenv.load_dotenv = lambda *args, **kwargs: False
+
+from app import create_app  # noqa: E402
+from app.core.database import db as _db  # noqa: E402
+from config.settings import TestingConfig  # noqa: E402
 
 
 # ─── Infrastructure ───────────────────────────────────────────────────────────

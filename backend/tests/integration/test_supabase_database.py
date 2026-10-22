@@ -32,7 +32,6 @@ import sys
 import uuid
 from pathlib import Path
 
-import dotenv
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.engine import make_url
@@ -96,7 +95,6 @@ def production_env():
         mp.setenv("DATABASE_URL", URL or "")
         for name in _DEFAULTED:
             mp.delenv(name, raising=False)
-        mp.setattr(dotenv, "load_dotenv", lambda *args, **kwargs: False)   # a local .env must not fill gaps
         mp.setattr(socket, "getaddrinfo", recording_getaddrinfo)
         yield lookups
 
@@ -105,7 +103,8 @@ def production_env():
 def settings(production_env):
     """A private copy of config/settings.py, executed under the environment above. The class
     attributes there are read from the environment when the module runs, so the copy that other
-    tests imported earlier (with their environment) cannot be used."""
+    tests imported earlier (with their environment) cannot be used. (conftest has already replaced
+    load_dotenv, so no .env fills a gap.)"""
     spec = importlib.util.spec_from_file_location("settings_under_test", _BACKEND / "config" / "settings.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
