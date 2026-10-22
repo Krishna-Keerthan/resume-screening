@@ -37,7 +37,7 @@ project. Never use real résumés or a project that holds other tables.
 
 ## Commands (WSL, from PowerShell)
 
-`scripts/run_supabase_check.sh` loads `backend/.env` into its own process without printing it (it strips
+`scripts/run_supabase_check.sh` reads `backend/.env` line by line (it does not source it, so `&`, `$` or backticks in a value are taken literally) into its own process environment without printing it (it strips
 Windows line endings, which would otherwise end up inside the values), then runs one check from `backend/`.
 Call it as a script file: quoting a long command through `wsl bash -c` from PowerShell or Git Bash mangles
 `$`, quotes and backslashes (a first attempt at an inline command silently ran with garbage values).
