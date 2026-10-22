@@ -16,7 +16,7 @@ Supabase free plan
 Render health checks
 - Check fails after a 5-second timeout. For a running service: after 15 consecutive seconds of failures Render stops routing traffic; after 60 seconds it restarts the service. During a deploy a new instance that fails for 15 minutes cancels the deploy.
 Render memory
-- Kernel OOM kill when the instance exceeds its limit; Free and Starter are 512 MB, Standard 2 GB. Measured under WSL: 511-513 MB PSS after 8 scorings with Supabase storage. Unknown on Render.
+- Kernel OOM kill when the instance exceeds its limit; Free and Starter are 512 MB, Standard 2 GB. Measured under WSL: 511-513 MB PSS after 8 scorings with Supabase storage; PSS includes reclaimable file-backed pages, so it is not the figure the limit applies to (anonymous memory was 297 MiB right after boot in a 512 MB Docker container, see docs/stack.md). Unknown on Render.
 
 ## Steps (one commit per step, tests first where code changes)
 0. Inspect, change nothing: where DATABASE_URL, the pool settings (DB_POOL_*) and SSL options are read; what render.yaml declares for the database and for healthCheckPath.

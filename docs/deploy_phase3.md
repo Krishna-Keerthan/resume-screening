@@ -230,8 +230,13 @@ before the view. Groq calls end 100 s after the request started, leaving 15 s of
 
 Measured with real gunicorn on WSL2 (Python 3.11, CPU torch 2.3, SQLite, development
 config): boot, then one DOCX upload and 8 real `POST /scores/match` requests with the
-semantic model available. PSS counts shared pages once, so it is the figure to compare
-with the instance limit; RSS counts shared pages in every process.
+semantic model available. PSS counts shared pages once, so it is the figure for comparing
+worker and preload settings with each other; RSS counts shared pages in every process. Neither
+is what Render's limit applies to: the kernel kills a process when memory it cannot reclaim
+(anonymous memory) exceeds the limit, and PSS also includes file-backed pages (the model and
+libraries) that it can drop. In a 512 MB, 0.5 CPU Docker container the app held 297 MiB of
+anonymous memory right after boot (`memory.stat`, no requests) and was not killed; see
+`docs/stack.md`. Render's own accounting is not measured.
 
 | Workers | Preload | After boot (total PSS) | After 8 scoring requests | Per process RSS after requests |
 |---|---|---|---|---|
@@ -241,9 +246,9 @@ with the instance limit; RSS counts shared pages in every process.
 | 1 | yes | 454 MB | 500 MB | master 452, worker 377 MB |
 
 - Preload saves about 210 MB with two workers but does not help with one.
-- Two workers do **not** fit in 512 MB once warm, with or without preload. One worker
-  fits with little room (470 to 500 MB before Postgres drivers and real
-  traffic). This was not measured on Render itself.
+- Two workers use clearly more than one (538 to 751 MB PSS against 470 to 500 MB), so the
+  table does not support running two on 512 MB. Whether one fits was not tested against a limit
+  on Render; the 470 to 500 MB is PSS and overstates what counts. Watch Render's memory graph.
 - **Production therefore runs one worker** (`WORKERS` defaults to 1 there, and
   `render.yaml` does not set it). Raise it only on an instance with more memory.
 - The embedding model (~90 MB) is downloaded when the app is built, by one script,
