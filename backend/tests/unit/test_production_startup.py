@@ -20,6 +20,8 @@ import sys
 
 import pytest
 
+from tests.subprocess_env import subprocess_env
+
 _BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
 _SCRIPT = """
@@ -39,14 +41,13 @@ print(json.dumps({"create_all_calls": len(calls)}))
 
 
 def _run(env_name, database_file, extra_env=None, script=_SCRIPT):
-    env = {
-        **os.environ,
-        "APP_ENV": env_name,
-        "DATABASE_URL": f"sqlite:///{database_file}",
-        "SECRET_KEY": "x" * 64,
-        "RATE_LIMIT_STORAGE_URL": "redis://localhost:1/0",
+    env = subprocess_env(
+        APP_ENV=env_name,
+        DATABASE_URL=f"sqlite:///{database_file}",
+        SECRET_KEY="x" * 64,
+        RATE_LIMIT_STORAGE_URL="redis://localhost:1/0",
         **(extra_env or {}),
-    }
+    )
     return subprocess.run(
         [sys.executable, "-c", script, env_name],
         env=env, capture_output=True, text=True, cwd=_BACKEND_DIR,

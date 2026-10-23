@@ -12,6 +12,7 @@ import uuid
 
 import pytest
 import sqlalchemy as sa
+from tests.subprocess_env import subprocess_env
 
 ADMIN_URL = os.getenv("TEST_DATABASE_URL", "")
 pytestmark = pytest.mark.skipif(
@@ -79,8 +80,7 @@ def migrator(admin):
 
 
 def _alembic(url, *args):
-    env = {k: v for k, v in os.environ.items() if k not in ("DB_SSLMODE",)}
-    env.update(APP_ENV="development", DATABASE_URL=url.render_as_string(hide_password=False))
+    env = subprocess_env(APP_ENV="development", DATABASE_URL=url.render_as_string(hide_password=False))
     return subprocess.run(
         [sys.executable, "-m", "alembic", *args], cwd=_BACKEND, env=env, capture_output=True, text=True,
     )

@@ -15,6 +15,7 @@ import subprocess
 import sys
 
 import pytest
+from tests.subprocess_env import subprocess_env
 
 _BACKEND = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 _REPO = os.path.dirname(_BACKEND)
@@ -60,12 +61,9 @@ print(json.dumps({**{k: conf[k] for k in keys}, "omp": os.environ.get("OMP_NUM_T
 
 
 def _gunicorn_conf(**env):
-    base = {k: v for k, v in os.environ.items()
-            if k not in ("WORKERS", "PORT", "HOST", "LOG_LEVEL", "OMP_NUM_THREADS",
-                         "GUNICORN_TIMEOUT_SECONDS", "TORCH_NUM_THREADS")}
     out = subprocess.run(
         [sys.executable, "-c", _PROBE],
-        env={**base, "APP_ENV": "development", **env},
+        env=subprocess_env(APP_ENV="development", **env),
         capture_output=True, text=True, cwd=_BACKEND, check=True,
     )
     return json.loads(out.stdout.strip().splitlines()[-1])

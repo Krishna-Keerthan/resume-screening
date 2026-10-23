@@ -8,6 +8,7 @@ Tests for configuration loading, weight validation, and env resolution.
 import pytest
 from config import get_config
 from config.settings import DevelopmentConfig, ProductionConfig, TestingConfig
+from tests.subprocess_env import subprocess_env
 
 
 def test_get_config_development():
@@ -82,13 +83,12 @@ def test_storage_settings_reach_flask_config():
     import subprocess
     import sys
 
-    env = {
-        **os.environ,
-        "STORAGE_PROVIDER":          "supabase",
-        "SUPABASE_URL":              "https://demo.supabase.co",
-        "SUPABASE_SERVICE_ROLE_KEY": "key-123",
-        "SUPABASE_BUCKET":           "resumes",
-    }
+    env = subprocess_env(
+        STORAGE_PROVIDER="supabase",
+        SUPABASE_URL="https://demo.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY="key-123",
+        SUPABASE_BUCKET="resumes",
+    )
     script = (
         "import json\n"
         "from flask import Flask\n"
@@ -138,8 +138,7 @@ def _read_settings(env_name, overrides, keys=_PROXY_KEYS):
     import subprocess
     import sys
 
-    env = {k: v for k, v in os.environ.items() if k not in keys}
-    env.update({
+    env = subprocess_env(**{
         "SECRET_KEY": "x" * 64,
         "DATABASE_URL": "postgresql://u:p@db/ats",
         "RATE_LIMIT_STORAGE_URL": "redis://cache:6379/0",

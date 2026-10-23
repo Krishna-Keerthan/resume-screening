@@ -15,6 +15,7 @@ import pytest
 
 from app.core.process_memory import log_rss, rss_mb
 from tests.unit.test_production_startup import _BACKEND_DIR, _run
+from tests.subprocess_env import subprocess_env
 
 
 @pytest.fixture()
@@ -104,7 +105,7 @@ runpy.run_path("gunicorn.conf.py")["post_fork"](None, None)
 def test_gunicorn_logs_the_memory_of_each_worker_after_the_fork():
     out = subprocess.run(
         [sys.executable, "-c", _HOOK_PROBE],
-        env={**os.environ, "APP_ENV": "development"}, capture_output=True, text=True,
+        env=subprocess_env(APP_ENV="development"), capture_output=True, text=True,
         cwd=_BACKEND_DIR, check=True,
     )
 

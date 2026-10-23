@@ -14,6 +14,7 @@ import types
 
 import pytest
 import yaml
+from tests.subprocess_env import subprocess_env
 
 _BACKEND = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 _REPO = os.path.dirname(_BACKEND)
@@ -81,9 +82,8 @@ def test_the_cache_path_is_absolute_inside_the_project_and_independent_of_the_wo
     import subprocess
 
     probe = "from config.settings import BaseConfig, ProductionConfig; print(BaseConfig.EMBEDDING_CACHE_DIR); print(ProductionConfig.EMBEDDING_CACHE_DIR)"
-    env = {k: v for k, v in os.environ.items() if k != "EMBEDDING_CACHE_DIR"}
     paths = {
-        cwd: subprocess.run([sys.executable, "-c", probe], env={**env, "PYTHONPATH": _BACKEND}, cwd=cwd,
+        cwd: subprocess.run([sys.executable, "-c", probe], env=subprocess_env(PYTHONPATH=_BACKEND), cwd=cwd,
                             capture_output=True, text=True, check=True).stdout.split()
         for cwd in (_BACKEND, "/", os.path.join(_BACKEND, "app"))
     }

@@ -37,6 +37,7 @@ from pathlib import Path
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.engine import make_url
+from tests.subprocess_env import subprocess_env
 
 URL = os.getenv("TEST_SUPABASE_DATABASE_URL")
 CONFIRMED_REF = os.getenv("CONFIRM_SUPABASE_REF")
@@ -67,10 +68,7 @@ _DEFAULTED = ("DB_POOL_SIZE", "DB_MAX_OVERFLOW")
 
 
 def _subprocess_env(**overrides):
-    environment = {**os.environ, **_PLACEHOLDERS, "DATABASE_URL": URL, **overrides}
-    for name in _DEFAULTED:
-        environment.pop(name, None)
-    return environment
+    return subprocess_env(**{**_PLACEHOLDERS, "DATABASE_URL": URL, **overrides})
 
 
 def _alembic(*args, **env):
@@ -304,9 +302,7 @@ def test_the_tests_need_both_the_url_and_the_run_flag():
 
 
 def _pytest_on_this_file(**env):
-    environment = {k: v for k, v in os.environ.items()
-                   if k not in ("TEST_SUPABASE_DATABASE_URL", RUN_ENV_VAR, "CONFIRM_SUPABASE_REF")}
-    environment.update(env)
+    environment = subprocess_env(**env)
     return subprocess.run(
         [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q", "-rs", "-k", "not gate_subprocess",
          "tests/integration/test_supabase_database.py"],

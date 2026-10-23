@@ -12,6 +12,8 @@ import sys
 
 import pytest
 
+from tests.subprocess_env import subprocess_env
+
 _BACKEND = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
 _SCRIPT = """
@@ -38,10 +40,9 @@ print(json.dumps(seen))
 
 
 def _connect_args_seen_by_alembic(url, **env):
-    base = {k: v for k, v in os.environ.items() if k not in ("DB_SSLMODE", "DATABASE_URL")}
     out = subprocess.run(
         [sys.executable, "-c", _SCRIPT], cwd=_BACKEND, capture_output=True, text=True, check=True,
-        env={**base, "APP_ENV": "development", "DATABASE_URL": url, **env},
+        env=subprocess_env(APP_ENV="development", DATABASE_URL=url, **env),
     )
     return json.loads(out.stdout.strip().splitlines()[-1])["connect_args"]
 
