@@ -1,6 +1,6 @@
 # Project status (resume screening platform repair)
 
-Last updated: 2026-10-22 (sessions: verify, rename, suites, Supabase docs, boot breakdown; PSS docs, script review, Render docs, npm audit). Git is the source of truth: if this file and `git log` disagree, believe git and fix this file. Update it at the end of every session.
+Last updated: 2026-10-23 (sessions: test .env isolation; verify, rename, suites, Supabase docs, boot breakdown; PSS docs, script review, Render docs, npm audit). Git is the source of truth: if this file and `git log` disagree, believe git and fix this file. Update it at the end of every session.
 
 ## Verify first (a fresh session must run these before trusting anything below)
 - `git status`, `git branch -a`, `git tag`
@@ -12,7 +12,10 @@ Verified 2026-10-22 (before that session's commits): on `fix/phase-3`, working t
 ## Done
 - Phase 0, 0.5, 2 (test baseline, crash bugs, Alembic) and Phase 1 (security: every route authenticated and ownership-checked, atomic refresh rotation, rate limiting, private uploads, route-guard test). Tagged `phase-1-done`.
 - Phase 3 code on `fix/phase-3`: Vercel proxy and first-party refresh cookie (strategy B); `alembic upgrade head` in the start command; storage moved from Cloudinary to Supabase Storage behind one interface (no public URLs); Postgres moved to the Supabase session pooler (migration 0005 revokes anon/authenticated privileges); liveness check that makes no dependency calls; Groq shared time budget; one gunicorn config; model baked into the build.
-- Suites re-run 2026-10-22 on the branch (WSL, Python 3.11 venv, Postgres 16.15 container): Postgres 16: 1059 passed, 6 skipped, 2 xfailed (exit 0, 496 s). SQLite: 1053 passed, 12 skipped, 2 xfailed (exit 0, 269 s). Identical to the 2026-10-19 numbers. The 2 xfails are intentional Phase 4 scorer markers. The skips are the Supabase checks (need a real project), the real-model scoring test (`--run-slow`) and the Postgres-only concurrency test on SQLite.
+- Suites re-run 2026-10-23 on `fix/test-env-isolation` (WSL, Python 3.11 venv, Postgres 16 container): SQLite: 1091 passed, 15 skipped, 2 xfailed. Postgres: 1097 passed, 9 skipped, 2 xfailed. The 2 xfails are intentional Phase 4 scorer markers. The skips are the Supabase database tests (need a real project and `RUN_SUPABASE_TESTS=1`), the real-model scoring test (`--run-slow`) and the Postgres-only tests on SQLite.
+- Test isolation from `backend/.env`: the test session never loads it (`tests/conftest.py` replaces `dotenv.load_dotenv` before the app is imported). Subprocesses started by tests get their environment from `tests/subprocess_env.py`: built from scratch, with a `sitecustomize.py` guard on `PYTHONPATH` that stops python-dotenv reading a `.env` file (python-dotenv 1.0.1 has no switch for it).
+- The Supabase database tests run only through `scripts/run_supabase_check.sh`, which sets `RUN_SUPABASE_TESTS=1` and requires `CONFIRM_SUPABASE_REF` to match the project ref in the database URL. A plain `pytest` skips them.
+- The database check refuses a target that has tables other than `alembic_version`, before anything is run.
 - Frontend 2026-10-22: `npm ci` exit 0, `npx tsc --noEmit` exit 0, `npm run build` exit 0 with `API_PROXY_TARGET=https://placeholder.example.onrender.com` (the build rewrites `frontend/next-env.d.ts`; revert it). `npm run lint` was not run. `npm ci` printed an audit summary that was not triaged.
 
 ## Decisions (settled; do not re-ask)
