@@ -201,7 +201,7 @@ address and log level from `config/settings.py`, so no launcher repeats them:
 | workers | `WORKERS` | 1 in production, 2 in development |
 | timeout | `GUNICORN_TIMEOUT_SECONDS` | 115 |
 | bind | `HOST`, `PORT` (Render sets `PORT`) | `0.0.0.0:5000` |
-| log level | `LOG_LEVEL` | `WARNING` in production |
+| log level | `LOG_LEVEL` | `INFO` in `render.yaml`; the code default for production is `WARNING` |
 | torch / OpenMP threads | `TORCH_NUM_THREADS` | 1 |
 
 `preload_app = True`: the app, and the embedding model, load once in the master and

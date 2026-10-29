@@ -69,3 +69,9 @@ def test_render_health_checks_the_liveness_endpoint_only(web):
     # /health makes no database or storage call (test_health.py); /health/ready and
     # /health/services do, and must stay out of Render's path.
     assert web["healthCheckPath"] == "/api/v1/health"
+
+
+def test_the_web_service_logs_at_info(web):
+    env = {e["key"]: e.get("value") for e in web["envVars"]}
+
+    assert env["LOG_LEVEL"] == "INFO"

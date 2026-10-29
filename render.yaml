@@ -49,7 +49,7 @@ services:
       - key: SUPABASE_BUCKET
         sync: false   # Set in Render dashboard: the private bucket's name
       - key: LOG_LEVEL
-        value: WARNING
+        value: INFO
       - key: LOG_FORMAT
         value: json
     healthCheckPath: /api/v1/health
