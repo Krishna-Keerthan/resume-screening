@@ -16,7 +16,7 @@ import logging
 from app.core.database import db
 from app.models.enums import ParseStatus
 from app.models.resume import Resume
-from app.repositories.base import BaseRepository
+from app.repositories.base import BaseRepository, fetch_page
 
 logger = logging.getLogger(__name__)
 
@@ -51,14 +51,7 @@ class ResumeRepository(BaseRepository[Resume]):
         if parse_status:
             query = query.filter(Resume.parse_status == parse_status)
 
-        total = query.count()
-        items = (
-            query
-            .order_by(Resume.created_at.desc())
-            .offset((page - 1) * limit)
-            .limit(limit)
-            .all()
-        )
+        items, total = fetch_page(query, Resume.created_at.desc(), page, limit)
         return items, total
 
     def list_for_recruiter(
@@ -92,14 +85,7 @@ class ResumeRepository(BaseRepository[Resume]):
         if active_only:
             query = query.filter(Resume.is_active == True)  # noqa: E712
 
-        total = query.count()
-        items = (
-            query
-            .order_by(Resume.created_at.desc())
-            .offset((page - 1) * limit)
-            .limit(limit)
-            .all()
-        )
+        items, total = fetch_page(query, Resume.created_at.desc(), page, limit)
         return items, total
 
     def get_active_resume(self, candidate_id: str) -> Resume | None:

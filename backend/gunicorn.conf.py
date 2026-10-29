@@ -31,6 +31,15 @@ preload_app = True
 
 
 def post_fork(server, worker):
-    """Report each worker's memory right after the fork, to compare with the master's."""
+    """
+    Give the worker a connection pool of its own, then report its memory next to the master's.
+
+    SQLAlchemy's recommended fix for a forked process (docs.sqlalchemy.org/en/20/core/pooling.html):
+    close=False replaces the pool without closing the connections the master may hold.
+    """
+    from app.core.database import db
     from app.core.process_memory import log_rss
+
+    with server.app.wsgi().app_context():
+        db.engine.dispose(close=False)
     log_rss("worker_start")

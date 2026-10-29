@@ -9,7 +9,7 @@ import logging
 from app.core.database import db
 from app.models.enums import JobStatus
 from app.models.job import Job
-from app.repositories.base import BaseRepository
+from app.repositories.base import BaseRepository, fetch_page
 from sqlalchemy import func, or_
 logger = logging.getLogger(__name__)
 
@@ -64,14 +64,7 @@ class JobRepository(BaseRepository[Job]):
         if max_experience is not None:
             query = query.filter(Job.experience_years <= max_experience)
 
-        total = query.count()
-        items = (
-            query
-            .order_by(Job.created_at.desc())
-            .offset((page - 1) * limit)
-            .limit(limit)
-            .all()
-        )
+        items, total = fetch_page(query, Job.created_at.desc(), page, limit)
         return items, total
 
     def list_by_recruiter(
@@ -112,13 +105,7 @@ class JobRepository(BaseRepository[Job]):
 
         # ── Pagination branch (API usage) ─────────────────────────────
         if page is not None and limit is not None:
-            total = query.count()
-            items = (
-                query
-                .offset((page - 1) * limit)
-                .limit(limit)
-                .all()
-            )
+            items, total = fetch_page(query, None, page, limit)
             return (items, total) if with_count else items
 
         # ── Non-paginated branch (Analytics usage) ─────────────────────

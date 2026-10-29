@@ -157,6 +157,8 @@ def init_db(app: Flask) -> None:
         _import_models()
         if app.config["CREATE_TABLES_ON_STARTUP"]:
             db.create_all()
+            # The master process must hold no pooled connection when gunicorn forks the workers.
+            db.engine.dispose()
 
     app.logger.info("Database initialised.")
 

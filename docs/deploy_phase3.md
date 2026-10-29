@@ -194,6 +194,24 @@ per deploy, before the app starts. Production never calls `db.create_all()`
 - Alembic builds the production config, so `SECRET_KEY`, `DATABASE_URL` and
   `RATE_LIMIT_STORAGE_URL` (Redis) must exist in the environment.
 
+### Emptying the application tables
+
+`scripts/reset_app_tables.sql` drops every table the models define and `alembic_version`, so the next
+`alembic upgrade head` (the start script runs it) rebuilds an empty schema. Use it when a database holds
+tables from an earlier attempt (for example ones `create_all` made, which Alembic's `0001` would then fail
+on) and the data in it is expendable.
+
+- **It destroys all data in those tables, with no undo.** The file's header says to review it first; do
+  that, and read the project ref in the connection string before running it.
+- It holds `DROP TABLE IF EXISTS "<table>";` statements only: no `DROP SCHEMA`, no `CASCADE`, nothing
+  outside the application's own tables. Children come before the tables they reference. The enum columns
+  are `VARCHAR` (`native_enum=False`), so no Postgres types are left behind.
+- Run it in Supabase's SQL editor, or with `psql "$DATABASE_URL" -f scripts/reset_app_tables.sql`, then
+  redeploy (or restart) so `alembic upgrade head` runs.
+- It is generated, not written: after a model is added or renamed, run `python -m scripts.generate_reset_sql`
+  from `backend/` and commit the result. `tests/unit/test_reset_app_tables_sql.py` fails while the file
+  differs from the generator's output.
+
 ## How the server is started
 
 The Dockerfile's `CMD` and the Procfile both run `backend/start.sh`: `alembic upgrade head`, then

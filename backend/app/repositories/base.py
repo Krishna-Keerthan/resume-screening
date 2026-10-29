@@ -40,6 +40,21 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
+def fetch_page(query, order_by, page: int, limit: int) -> tuple[list, int]:
+    """
+    One page of `query` (ordered by `order_by`, or as it already is when None) and the unpaged total.
+
+    A page that holds fewer than `limit` rows ends the result, so its total is the offset plus
+    what it holds and no COUNT runs. A full page, or a page past the end, still counts.
+    """
+    offset = (page - 1) * limit
+    ordered = query if order_by is None else query.order_by(order_by)
+    items = ordered.offset(offset).limit(limit).all()
+    if len(items) < limit and (items or page == 1):
+        return items, offset + len(items)
+    return items, query.count()
+
+
 class BaseRepository(Generic[T]):
     """
     Generic CRUD repository.
@@ -173,18 +188,10 @@ class BaseRepository(Generic[T]):
             if active_filters:
                 query = query.filter_by(**active_filters)
 
-        total = query.count()
-
         if order_by is None:
             order_by = self.model.created_at.desc()
 
-        items = (
-            query
-            .order_by(order_by)
-            .offset((page - 1) * limit)
-            .limit(limit)
-            .all()
-        )
+        items, total = fetch_page(query, order_by, page, limit)
 
         logger.debug(
             "Paginated query",

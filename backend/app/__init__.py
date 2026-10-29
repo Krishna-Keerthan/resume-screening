@@ -38,7 +38,7 @@ import logging
 import os
 from typing import Any
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.core.logging import configure_logging
@@ -310,6 +310,10 @@ def _register_error_handlers(app: Flask) -> None:
         from app.core.extensions import limiter
         from app.core.rate_limit import retry_after_seconds
 
+        logger.info(
+            "Rate limit exceeded",
+            extra={"ip": request.remote_addr, "method": request.method, "path": request.path},
+        )
         headers = {}
         retry_after = retry_after_seconds(limiter)
         if retry_after is not None:

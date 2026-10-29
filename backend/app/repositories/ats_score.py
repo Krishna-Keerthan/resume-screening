@@ -8,7 +8,7 @@ from sqlalchemy import and_
 
 from app.core.database import db
 from app.models.ats_score import AtsScore
-from app.repositories.base import BaseRepository
+from app.repositories.base import BaseRepository, fetch_page
 
 logger = logging.getLogger(__name__)
 
@@ -140,14 +140,7 @@ class AtsScoreRepository(BaseRepository[AtsScore]):
         if score_label:
             query = query.filter(AtsScore.score_label == score_label)
 
-        total = query.count()
-        items = (
-            query
-            .order_by(AtsScore.final_score.desc())
-            .offset((page - 1) * limit)
-            .limit(limit)
-            .all()
-        )
+        items, total = fetch_page(query, AtsScore.final_score.desc(), page, limit)
         return items, total
 
     def get_missing_skills_for_candidate(self, candidate_id: str) -> list[str]:

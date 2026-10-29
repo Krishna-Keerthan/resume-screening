@@ -23,6 +23,7 @@ from flask import Blueprint, current_app, request
 from app.core.responses import created, error, no_content, success, success_list
 from app.core.security import (
     assert_candidate_applied_to_recruiter,
+    current_account,
     get_current_user,
     require_auth,
     require_ownership,
@@ -63,8 +64,12 @@ def get_candidate(candidate_id: str):
 
     try:
         from app.repositories import CandidateRepository, ResumeRepository
-        repo = CandidateRepository()
-        candidate = repo.get_active_by_id(candidate_id)
+        # A candidate reading themselves: @require_auth already loaded this account and
+        # checked that it is active and not deleted.
+        candidate = (
+            current_account() if role == "candidate"
+            else CandidateRepository().get_active_by_id(candidate_id)
+        )
 
         if not candidate:
             return error(

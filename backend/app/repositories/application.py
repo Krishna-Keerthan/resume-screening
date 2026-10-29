@@ -8,7 +8,7 @@ import logging
 from app.core.database import db
 from app.models.application import Application
 from app.models.enums import ApplicationStage
-from app.repositories.base import BaseRepository
+from app.repositories.base import BaseRepository, fetch_page
 from sqlalchemy.orm import joinedload
 
 logger = logging.getLogger(__name__)
@@ -46,14 +46,7 @@ class ApplicationRepository(BaseRepository[Application]):
         )
         if stage:
             query = query.filter(Application.stage == stage)
-        total = query.count()
-        items = (
-            query
-            .order_by(Application.created_at.desc())
-            .offset((page - 1) * limit)
-            .limit(limit)
-            .all()
-        )
+        items, total = fetch_page(query, Application.created_at.desc(), page, limit)
         return items, total
 
     def list_by_candidate(self, candidate_id, stage=None, page=1, limit=20):
@@ -67,14 +60,7 @@ class ApplicationRepository(BaseRepository[Application]):
         )
         if stage:
             query = query.filter(Application.stage == stage)
-        total = query.count()
-        items = (
-            query
-            .order_by(Application.created_at.desc())
-            .offset((page - 1) * limit)
-            .limit(limit)
-            .all()
-        )
+        items, total = fetch_page(query, Application.created_at.desc(), page, limit)
         return items, total
 
     def get_top_applicants(

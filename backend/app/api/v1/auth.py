@@ -280,11 +280,13 @@ def login():
     password = data["password"]
     role     = data["role"]
 
-    _INVALID = lambda: error(  # noqa: E731
-        "Invalid email or password.",
-        code="INVALID_CREDENTIALS",
-        status=401,
-    )
+    def _INVALID():
+        logger.info("Login failed", extra={"ip": request.remote_addr})
+        return error(
+            "Invalid email or password.",
+            code="INVALID_CREDENTIALS",
+            status=401,
+        )
 
     try:
         if role == "candidate":
