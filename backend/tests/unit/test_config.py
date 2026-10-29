@@ -274,3 +274,38 @@ def test_worker_count_defaults_per_environment(env_name, workers):
 def test_production_reads_the_worker_count_from_the_environment():
     assert _read_settings("production", {"WORKERS": "3"}, ("WORKERS",)) == {"WORKERS": 3}
 
+
+# Render sets RENDER=true in every service (https://render.com/docs/environment-variables).
+
+@pytest.mark.parametrize("env", ["development", "testing"])
+def test_a_render_process_refuses_a_non_production_environment(monkeypatch, env):
+    monkeypatch.setenv("RENDER", "true")
+
+    with pytest.raises(EnvironmentError, match="Render.*APP_ENV=production"):
+        get_config(env)
+
+
+def test_a_render_process_refuses_an_unset_app_env(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.delenv("APP_ENV", raising=False)
+
+    with pytest.raises(EnvironmentError, match="APP_ENV=production"):
+        get_config()
+
+
+def test_a_render_process_may_run_production(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("SECRET_KEY", "x" * 64)
+    monkeypatch.setattr(ProductionConfig, "RATE_LIMIT_STORAGE_URL", "redis://cache:6379/0")
+
+    assert isinstance(get_config("production"), ProductionConfig)
+
+
+@pytest.mark.parametrize("value", [None, "", "false"])
+def test_outside_render_every_environment_is_allowed(monkeypatch, value):
+    if value is None:
+        monkeypatch.delenv("RENDER", raising=False)
+    else:
+        monkeypatch.setenv("RENDER", value)
+
+    assert get_config("development") is not None

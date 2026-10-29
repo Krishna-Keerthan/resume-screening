@@ -324,6 +324,13 @@ def get_config(env: str | None = None) -> BaseConfig:
     instances.
     """
     resolved     = env or os.getenv("APP_ENV", "development")
+    # Render sets RENDER=true in every service (https://render.com/docs/environment-variables).
+    if os.getenv("RENDER") == "true" and resolved != "production":
+        raise EnvironmentError(
+            f"This process is running on Render with APP_ENV={resolved!r}. Render must run "
+            "APP_ENV=production: development mode creates tables with create_all, accepts "
+            "local disk storage and skips the production checks."
+        )
     config_class = _CONFIG_REGISTRY.get(resolved)
     if config_class is None:
         valid = ", ".join(_CONFIG_REGISTRY.keys())

@@ -131,3 +131,10 @@ def test_development_still_starts_on_local_storage(tmp_path):
     out = _run("development", tmp_path / "dev.db", {"STORAGE_PROVIDER": "local"})
 
     assert out.returncode == 0, out.stderr
+
+
+def test_a_render_process_in_development_mode_does_not_boot(tmp_path):
+    out = _run("development", tmp_path / "dev.db", {"RENDER": "true"})
+
+    assert out.returncode != 0
+    assert "APP_ENV=production" in out.stderr
