@@ -104,6 +104,11 @@ class StorageService:
 
 
 def _build_local(cfg: Callable) -> "LocalStorageBackend":
+    if not cfg("ALLOW_LOCAL_STORAGE", True):
+        raise StorageError(
+            "STORAGE_PROVIDER is local (or unset), but local disk storage is not allowed in this "
+            "environment: uploads would be lost on the next deploy. Set STORAGE_PROVIDER=supabase."
+        )
     return LocalStorageBackend(upload_dir=cfg("UPLOAD_FOLDER", "/tmp/uploads"))
 
 

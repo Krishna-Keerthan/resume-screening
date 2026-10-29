@@ -40,13 +40,23 @@ print(json.dumps({"create_all_calls": len(calls)}))
 """
 
 
+_SUPABASE = {
+    "STORAGE_PROVIDER": "supabase",
+    "SUPABASE_URL": "https://project.supabase.co",
+    "SUPABASE_SERVICE_ROLE_KEY": "service-role-key-must-not-leak",
+    "SUPABASE_BUCKET": "resumes",
+}
+
+
 def _run(env_name, database_file, extra_env=None, script=_SCRIPT):
+    # Production refuses local disk, so its boots get a complete Supabase setup unless a test overrides it.
+    storage = _SUPABASE if env_name == "production" else {}
     env = subprocess_env(
         APP_ENV=env_name,
         DATABASE_URL=f"sqlite:///{database_file}",
         SECRET_KEY="x" * 64,
         RATE_LIMIT_STORAGE_URL="redis://localhost:1/0",
-        **(extra_env or {}),
+        **{**storage, **(extra_env or {})},
     )
     return subprocess.run(
         [sys.executable, "-c", script, env_name],
@@ -90,13 +100,6 @@ def test_development_startup_still_creates_the_tables(tmp_path):
 
 # ─── File storage ─────────────────────────────────────────────────────────────
 
-_SUPABASE = {
-    "STORAGE_PROVIDER": "supabase",
-    "SUPABASE_URL": "https://project.supabase.co",
-    "SUPABASE_SERVICE_ROLE_KEY": "service-role-key-must-not-leak",
-    "SUPABASE_BUCKET": "resumes",
-}
-
 
 @pytest.mark.parametrize("missing", ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_BUCKET"])
 def test_production_refuses_to_start_with_an_incomplete_supabase_setup(tmp_path, missing):
@@ -113,3 +116,18 @@ def test_production_starts_with_a_complete_supabase_setup(tmp_path):
 
     assert out.returncode == 0, out.stderr
 
+
+@pytest.mark.parametrize("provider", ["local", ""])
+def test_production_refuses_to_start_on_local_storage(tmp_path, provider):
+    # "" is what an unset STORAGE_PROVIDER becomes: the factory's default is local.
+    out = _run("production", tmp_path / "prod.db", {"STORAGE_PROVIDER": provider})
+
+    assert out.returncode != 0
+    assert "StorageError" in out.stderr
+    assert "local" in out.stderr
+
+
+def test_development_still_starts_on_local_storage(tmp_path):
+    out = _run("development", tmp_path / "dev.db", {"STORAGE_PROVIDER": "local"})
+
+    assert out.returncode == 0, out.stderr

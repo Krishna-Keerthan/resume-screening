@@ -19,6 +19,13 @@ def test_local_is_the_default(tmp_path):
         assert isinstance(backend, LocalStorageBackend)
 
 
+def test_local_storage_can_be_disallowed_by_config(tmp_path):
+    with pytest.raises(StorageError, match="local"):
+        StorageService.from_config(
+            {"STORAGE_PROVIDER": "local", "UPLOAD_FOLDER": str(tmp_path), "ALLOW_LOCAL_STORAGE": False}
+        )
+
+
 def test_the_provider_name_is_case_and_space_insensitive(tmp_path):
     backend = StorageService.from_config({"STORAGE_PROVIDER": "  LOCAL ", "UPLOAD_FOLDER": str(tmp_path)})
 

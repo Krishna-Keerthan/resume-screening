@@ -141,6 +141,9 @@ class BaseConfig:
 
     # ── File storage (StorageService.from_config) ─────────────────────────────
     STORAGE_PROVIDER:      str = os.getenv("STORAGE_PROVIDER", "local")
+    # Local disk is for development and tests; production sets this False because
+    # a hosted disk is wiped on every deploy.
+    ALLOW_LOCAL_STORAGE:   bool = True
     # STORAGE_PROVIDER=supabase. The service-role key is server-side only: it bypasses
     # row-level security, so it is never logged, returned or sent to the browser.
     SUPABASE_URL:              str = os.getenv("SUPABASE_URL", "")
@@ -234,6 +237,7 @@ class ProductionConfig(BaseConfig):
     # LOG_PROXY_CHAIN line is a WARNING, so ERROR or above hides it.
     LOG_LEVEL:  str  = os.getenv("LOG_LEVEL", "WARNING")
     CREATE_TABLES_ON_STARTUP: bool = False
+    ALLOW_LOCAL_STORAGE: bool = False
     # Few connections: the database sits behind Supabase's session pooler, which caps
     # clients, and there is one worker. "require" encrypts; it does not verify the server.
     DB_POOL_SIZE:    int = _int_env("DB_POOL_SIZE", 3)
