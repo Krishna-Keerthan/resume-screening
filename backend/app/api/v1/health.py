@@ -111,7 +111,8 @@ def service_status():
 
     Returns availability booleans only, so the endpoint does not reveal which
     components or versions run behind it:
-      - database:        the database answers a query
+      - database:        the database answers a query, on a connection of its own; the
+                         answer is reused for DATABASE_HEALTH_CACHE_SECONDS
       - semantic_search: the embedding model is loaded
       - ai_assistance:   the LLM client is configured and live
     """
@@ -126,13 +127,7 @@ def service_status():
         embedding_ok  = bool(embedding_svc and getattr(embedding_svc, "available", False))
         groq_ok       = bool(groq_svc and getattr(groq_svc, "available", False))
 
-    db_ok = False
-    try:
-        from app.core.database import db
-        db.session.execute(db.text("SELECT 1"))
-        db_ok = True
-    except Exception:
-        pass
+    db_ok = current_app.extensions["database_probe"]()
 
     return success(
         data={

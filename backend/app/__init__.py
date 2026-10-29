@@ -197,6 +197,21 @@ def _init_services(app: Flask) -> None:
     app.extensions["storage_probe"] = CachedProbe(
         lambda: _storage_is_reachable(app), app.config["STORAGE_HEALTH_CACHE_SECONDS"],
     )
+    app.extensions["database_probe"] = CachedProbe(
+        _database_is_reachable, app.config["DATABASE_HEALTH_CACHE_SECONDS"],
+    )
+
+
+def _database_is_reachable() -> bool:
+    """Ask the database on a connection of its own, so the request's ORM session is never touched."""
+    from app.core.database import db
+    try:
+        with db.engine.connect() as connection:
+            connection.execute(db.text("SELECT 1"))
+    except Exception:
+        logger.warning("Database health check failed", exc_info=True)
+        return False
+    return True
 
 
 def _storage_is_reachable(app: Flask) -> bool:

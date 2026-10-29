@@ -165,6 +165,11 @@ them by hand or from an uptime monitor.
 measured with `time.monotonic`), so frequent probes do not each call Supabase. A storage failure
 is therefore reported for up to that long after it ends.
 
+`/health/services` checks the database on a connection of its own (never the request's ORM session) and
+reuses the answer for `DATABASE_HEALTH_CACHE_SECONDS` (default 10). A database failure gives 200 with
+`database: false`, not a 500. Each uncached check costs a pool pre-ping, `BEGIN`, `SELECT 1` and a
+rollback on return.
+
 A health check path set in the Render dashboard is not overwritten by the blueprint and can
 shadow it. After creating the service, open Settings → Health Check Path and confirm it reads
 `/api/v1/health`.
