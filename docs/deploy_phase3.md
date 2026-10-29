@@ -191,9 +191,10 @@ per deploy, before the app starts. Production never calls `db.create_all()`
 
 ## How the server is started
 
-Docker, the Procfile and `render.yaml` (root; `rootDir: backend`) all run the same thing from `backend/`:
-`gunicorn -c gunicorn.conf.py wsgi:app` (Render and the Procfile run
-`alembic upgrade head` first). `gunicorn.conf.py` reads workers, timeout, bind
+The Dockerfile's `CMD` and the Procfile both run `backend/start.sh`: `alembic upgrade head`, then
+`exec gunicorn -c gunicorn.conf.py wsgi:app`. That script is the only place the command is written.
+`render.yaml` sets no start command; Render runs the image's `CMD`. `docker-compose.yml` overrides
+`command` to skip the migration, because its tables come from `create_all`. `gunicorn.conf.py` reads workers, timeout, bind
 address and log level from `config/settings.py`, so no launcher repeats them:
 
 | Setting | Env var | Default |
@@ -252,8 +253,8 @@ anonymous memory right after boot (`memory.stat`, no requests) and was not kille
 - **Production therefore runs one worker** (`WORKERS` defaults to 1 there, and
   `render.yaml` does not set it). Raise it only on an instance with more memory.
 - The embedding model (~90 MB) is downloaded when the app is built, by one script,
-  `python -m scripts.download_model` (`backend/scripts/download_model.py`), which both
-  Render's `buildCommand` and the Dockerfile run. Nothing else names the model or the
+  `python -m scripts.download_model` (`backend/scripts/download_model.py`), which the
+  Dockerfile runs. Nothing else names the model or the
   cache path. The path is the `EMBEDDING_CACHE_DIR` setting, an absolute path that
   defaults to `backend/.cache/embeddings` (a relative value is relative to `backend/`,
   not to the working directory), and the running app reads the same setting. The script
@@ -261,7 +262,7 @@ anonymous memory right after boot (`memory.stat`, no requests) and was not kille
   (`/opt/render/project`) is carried from the build to the running service. After
   downloading it loads the model again from the cache with `local_files_only=True` and
   encodes one string, so an incomplete cache fails the build rather than the first start.
-- The runtime sets `EMBEDDING_OFFLINE=true` (Dockerfile `ENV`, `render.yaml`) so the model
+- The runtime sets `EMBEDDING_OFFLINE=true` (Dockerfile `ENV` only) so the model
   loads from the local cache only. Without that, `huggingface_hub` still asks huggingface.co
   about each cached file and, with no network, retries each request for about 20 s, so a
   boot took minutes. With it, a container with `--network none` became healthy in 14 s.
@@ -354,11 +355,13 @@ object.
    bucket name; see "Supabase Storage" above); a Groq API key
    (optional, LLM features are off without it).
 2. **The blueprint is `render.yaml` in the repository root** (where Render looks by
-   default). The web service uses `runtime: python` with `rootDir: backend`, so its
-   build and start commands run from `backend/`. There is no Docker field to set:
-   Render does not use the Dockerfile for this service. Field names come from
-   https://render.com/docs/blueprint-spec. The file was also checked against
-   https://render.com/schema/render.yaml.json (see the commit message for how).
+   default). The web service uses `runtime: docker`, `dockerfilePath: ./backend/Dockerfile`
+   and `dockerContext: ./backend`, with no `rootDir`: Render's schema words those two paths as
+   relative to `rootDir` in one place and to the repo root in another, and the readings agree
+   only when `rootDir` is unset. Field names come from
+   https://render.com/docs/blueprint-spec and the file validates against
+   https://render.com/schema/render.yaml.json. A service created by hand in the dashboard does not
+   read this file; a Blueprint has to be created from it (or the dashboard settings matched).
 3. **Create the Render blueprint** (web service and the `ats-ratelimit` Key Value; the
    database is on Supabase, see "Database on Supabase"). Fill the `sync: false` values:
    `DATABASE_URL`, `SUPABASE_URL`,

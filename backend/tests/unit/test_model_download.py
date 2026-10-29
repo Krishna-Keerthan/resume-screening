@@ -107,13 +107,6 @@ def test_the_cache_path_and_model_name_are_written_in_no_launcher():
         assert "EMBEDDING_CACHE_DIR" not in text
 
 
-def test_render_downloads_the_model_in_the_build_command():
-    blueprint = yaml.safe_load(_read(_REPO, "render.yaml"))
-    (web,) = [s for s in blueprint["services"] if s["type"] == "web"]
-
-    assert web["buildCommand"].strip().endswith(f"&& {_COMMAND}")
-
-
 def test_the_docker_image_downloads_the_model_before_the_app_code_is_copied():
     dockerfile = _read(_BACKEND, "Dockerfile")
     pip_install = dockerfile.index("pip install")

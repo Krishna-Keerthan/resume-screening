@@ -52,15 +52,10 @@ def test_the_factory_passes_the_offline_setting(app):
     assert get_instance.call_args.kwargs["local_files_only"] is True
 
 
-def test_the_image_and_the_blueprint_turn_it_on():
+def test_the_image_turns_it_on_after_downloading_the_model():
     import os
-    import yaml
 
     backend = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
     dockerfile = open(os.path.join(backend, "Dockerfile"), encoding="utf-8").read()
-    blueprint = yaml.safe_load(open(os.path.join(os.path.dirname(backend), "render.yaml"), encoding="utf-8"))
-    (web,) = [s for s in blueprint["services"] if s["type"] == "web"]
-    env = {e["key"]: e.get("value") for e in web["envVars"]}
 
     assert dockerfile.index("RUN python -m scripts.download_model") < dockerfile.index("ENV EMBEDDING_OFFLINE=true")
-    assert env["EMBEDDING_OFFLINE"] == "true"

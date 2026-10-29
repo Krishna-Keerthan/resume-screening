@@ -1,7 +1,8 @@
 """
 How the server is started: one entry point (wsgi:app), one gunicorn config, one timeout.
 
-Docker, the Procfile and render.yaml all run `gunicorn -c gunicorn.conf.py wsgi:app`;
+Docker and the Procfile run backend/start.sh (`alembic upgrade head`, then
+`gunicorn -c gunicorn.conf.py wsgi:app`), and render.yaml runs the Dockerfile's CMD;
 workers, timeout, bind address and log level live in config/settings.py and reach
 gunicorn through gunicorn.conf.py, so no launcher can drift from another.
 
@@ -15,6 +16,7 @@ import subprocess
 import sys
 
 import pytest
+import yaml
 from tests.subprocess_env import subprocess_env
 
 _BACKEND = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -29,27 +31,39 @@ def _read(*parts):
 
 def _launch_commands():
     procfile = next(l for l in _read(_BACKEND, "Procfile").splitlines() if l.startswith("web:"))
-    render = re.search(r"startCommand:\s*(.+)", _read(_REPO, "render.yaml")).group(1)
     docker_cmd = re.search(r"^CMD\s+(\[.*\])\s*$", _read(_BACKEND, "Dockerfile"), re.M).group(1)
     return {
-        "Procfile": procfile,
-        "render.yaml": render,
+        "Procfile": procfile.removeprefix("web:").strip(),
         "Dockerfile": " ".join(json.loads(docker_cmd)),
     }
 
 
-@pytest.mark.parametrize("launcher", ["Procfile", "render.yaml", "Dockerfile"])
-def test_every_launcher_runs_wsgi_app_with_the_shared_gunicorn_config(launcher):
-    command = _launch_commands()[launcher]
+def test_the_start_script_migrates_then_hands_the_process_to_gunicorn():
+    lines = [l.strip() for l in _read(_BACKEND, "start.sh").splitlines() if l.strip() and not l.startswith("#")]
 
-    assert "gunicorn -c gunicorn.conf.py wsgi:app" in command
-    assert "run:app" not in command
+    assert lines == [
+        "set -e",
+        "alembic upgrade head",
+        "exec gunicorn -c gunicorn.conf.py wsgi:app",
+    ]
 
 
-@pytest.mark.parametrize("launcher", ["Procfile", "render.yaml", "Dockerfile"])
+@pytest.mark.parametrize("launcher", ["Procfile", "Dockerfile"])
+def test_every_launcher_runs_the_one_start_script(launcher):
+    assert _launch_commands()[launcher] == "sh start.sh"
+
+
+def test_render_yaml_does_not_repeat_the_start_command():
+    blueprint = yaml.safe_load(_read(_REPO, "render.yaml"))
+    (web,) = [s for s in blueprint["services"] if s["type"] == "web"]
+
+    for field in ("startCommand", "dockerCommand", "preDeployCommand", "buildCommand"):
+        assert field not in web
+
+
 @pytest.mark.parametrize("flag", ["--timeout", "--workers", "--bind", "--log-level", "--preload"])
-def test_no_launcher_repeats_a_setting_that_the_config_owns(launcher, flag):
-    assert flag not in _launch_commands()[launcher]
+def test_the_start_script_repeats_no_setting_that_the_config_owns(flag):
+    assert flag not in _read(_BACKEND, "start.sh")
 
 
 _PROBE = """

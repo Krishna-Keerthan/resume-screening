@@ -1,8 +1,6 @@
 """
 render.yaml is Render's Blueprint file. Render looks for it in the repository root, and a
-service's rootDir (default: the repo root) decides where its build and start commands run.
-The backend lives in backend/, so the service sets rootDir: backend and runs the same
-gunicorn.conf.py the Dockerfile uses.
+service uses runtime: docker: Render builds backend/Dockerfile and runs its CMD.
 
 Field names are the ones in https://render.com/docs/blueprint-spec and
 https://render.com/schema/render.yaml.json.
@@ -32,17 +30,44 @@ def test_the_blueprint_is_in_the_repository_root_only():
     assert not os.path.exists(os.path.join(_REPO, "backend", "render.yaml"))
 
 
-def test_the_web_service_builds_from_the_backend_directory_with_the_python_runtime(web):
-    assert web["runtime"] == "python"
-    assert web["rootDir"] == "backend"
-    assert "dockerfilePath" not in web and "dockerContext" not in web
+def test_the_web_service_builds_the_backend_dockerfile(web):
+    # Both paths are given from the repository root, with no rootDir: Render's schema words
+    # dockerfilePath and dockerContext as relative to rootDir in one place and to the repo
+    # root in another, and the two readings agree only when rootDir is unset.
+    assert web["runtime"] == "docker"
+    assert "rootDir" not in web
+    assert web["dockerfilePath"] == "./backend/Dockerfile"
+    assert web["dockerContext"] == "./backend"
+    assert os.path.isfile(os.path.join(_REPO, web["dockerfilePath"]))
+    assert os.path.isdir(os.path.join(_REPO, web["dockerContext"]))
 
 
-def test_the_build_and_start_commands_run_relative_to_the_root_dir(web):
-    assert "-r requirements.txt" in web["buildCommand"]
-    assert web["startCommand"] == "alembic upgrade head && gunicorn -c gunicorn.conf.py wsgi:app"
-    assert os.path.isfile(os.path.join(_REPO, web["rootDir"], "requirements.txt"))
-    assert os.path.isfile(os.path.join(_REPO, web["rootDir"], "gunicorn.conf.py"))
+def test_the_web_service_has_no_build_or_start_command_of_its_own(web):
+    # The Dockerfile builds the image and its CMD (start.sh) starts it.
+    for field in ("buildCommand", "startCommand", "dockerCommand", "preDeployCommand"):
+        assert field not in web
+
+
+def test_the_web_service_declares_its_environment(web):
+    env = {e["key"]: e for e in web["envVars"]}
+
+    assert {k: env[k].get("value") for k in ("APP_ENV", "STORAGE_PROVIDER", "LOG_LEVEL", "TRUSTED_PROXY_HOPS", "LOG_PROXY_CHAIN")} == {
+        "APP_ENV": "production",
+        "STORAGE_PROVIDER": "supabase",
+        "LOG_LEVEL": "INFO",
+        "TRUSTED_PROXY_HOPS": "2",
+        "LOG_PROXY_CHAIN": "true",
+    }
+    assert env["SECRET_KEY"] == {"key": "SECRET_KEY", "generateValue": True}
+    for secret in ("DATABASE_URL", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_BUCKET", "GROQ_API_KEY", "ALLOWED_ORIGINS"):
+        assert env[secret] == {"key": secret, "sync": False}
+    assert "value" not in env["RATE_LIMIT_STORAGE_URL"] and "fromService" in env["RATE_LIMIT_STORAGE_URL"]
+
+
+def test_the_model_cache_setting_lives_in_the_dockerfile_only(web):
+    assert "EMBEDDING_OFFLINE" not in {e["key"] for e in web["envVars"]}
+    with open(os.path.join(_REPO, "backend", "Dockerfile"), encoding="utf-8") as f:
+        assert "ENV EMBEDDING_OFFLINE=true" in f.read()
 
 
 def test_the_key_value_store_declares_who_may_connect(blueprint):

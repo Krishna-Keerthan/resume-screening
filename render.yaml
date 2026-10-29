@@ -3,19 +3,19 @@
 # Field names: https://render.com/docs/blueprint-spec
 # Schema:      https://render.com/schema/render.yaml.json
 #
-# Render reads this file from the repository root. The backend lives in backend/, so the
-# web service sets rootDir: backend and its build and start commands run from there.
+# Render reads this file from the repository root. The web service builds backend/Dockerfile.
+# The image carries the embedding model and EMBEDDING_OFFLINE=true, so neither is set here.
 
 services:
   - type: web
     name: ats-backend
-    runtime: python
-    rootDir: backend
-    buildCommand: pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt && python -m scripts.download_model
-    startCommand: alembic upgrade head && gunicorn -c gunicorn.conf.py wsgi:app
+    runtime: docker
+    # Paths are from the repository root (no rootDir): the schema words dockerfilePath and
+    # dockerContext as relative to rootDir in one place and to the repo root in another.
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    # Render runs the Dockerfile's CMD, backend/start.sh (migrate, then gunicorn).
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.17   # same as python:3.11-slim in Dockerfile; torch 2.3.0 has no 3.13 wheels
       - key: APP_ENV
         value: production
       - key: SECRET_KEY
@@ -27,9 +27,6 @@ services:
           type: keyvalue
           name: ats-ratelimit
           property: connectionString   # production refuses memory://
-      # The build command downloads the model; load it from there, never from the network.
-      - key: EMBEDDING_OFFLINE
-        value: "true"
       - key: TRUSTED_PROXY_HOPS
         value: "2"   # Vercel, then Render's proxy; verify with LOG_PROXY_CHAIN
       - key: LOG_PROXY_CHAIN
