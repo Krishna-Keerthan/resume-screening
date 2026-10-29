@@ -28,6 +28,24 @@ logger = logging.getLogger(__name__)
 # 204 also commits, in its own branch of _after_request.
 _AUTOCOMMIT_STATUSES = frozenset({200, 201})
 
+# These methods never commit: a read has nothing to save, and a commit costs a database
+# round trip (or raises, if the session was left unusable).
+_READ_ONLY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def _end_read_only_transaction(db) -> None:
+    """Roll back after a read. Pending changes mean a read route wrote; say so instead of saving them."""
+    try:
+        session = db.session
+        if session.new or session.dirty or session.deleted:
+            logger.error(
+                "Read-only request left unsaved changes",
+                extra={"method": request.method, "path": request.path},
+            )
+        session.rollback()
+    except Exception:
+        logger.warning("Rollback after a read-only request failed", exc_info=True)
+
 
 def register_middleware(app: Flask) -> None:
     """Attach all middleware hooks to the Flask application."""
@@ -78,6 +96,7 @@ def register_middleware(app: Flask) -> None:
         Runs after every request handler that returned a response.
 
         Transaction handling, so routes only need to flush:
+          - GET / HEAD / OPTIONS: no commit, whatever the status; roll back.
           - 200 / 201: commit. If the commit fails, roll back and turn the
             response into a 500.
           - 204: commit. If the commit fails, roll back and log, but the
@@ -93,7 +112,9 @@ def register_middleware(app: Flask) -> None:
 
         response.headers["X-Request-ID"] = rid
 
-        if response.status_code in _AUTOCOMMIT_STATUSES:
+        if request.method in _READ_ONLY_METHODS:
+            _end_read_only_transaction(db)
+        elif response.status_code in _AUTOCOMMIT_STATUSES:
             try:
                 db.session.commit()
             except Exception:
